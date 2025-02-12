@@ -1,0 +1,27 @@
+version: '3.7'
+
+
+services:
+  db:
+    environment:
+      POSTGRES_MULTIPLE_DATABASES: kluster_db
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: fostgres
+    image: jhnnsrs/daten:next
+    labels:
+      - "arkitekt.default.service=db"
+  alpaka_server:
+    build: .
+    ports:
+    - 9030:80
+    labels:
+      - "arkitekt.default.service=kluster"
+      - "traefik.enable=true"
+      - "traefik.http.routers.mikro.entrypoints=kluster"
+      - "traefik.http.services.mikro.loadbalancer.server.port=8080"
+      - "traefik.http.routers.mikro.tls.certresolver=myresolver"
+  redis:
+    image: redis:latest
+    labels:
+      - "arkitekt.default.service=redis"
+

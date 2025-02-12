@@ -1,0 +1,88 @@
+deployments:
+- build_id: 0e663dde-7027-42d4-bd81-ebcdc3013969
+  deployed_at: '2024-01-17T16:12:05.578619'
+  deployment_id: 7d7c2d32-057f-4870-8df8-f31faea2a3fb
+  deployment_run: ac6b92ca-9ab7-4f60-b0f1-ee64a193c59f
+  flavour: vanilla
+  image: jhnnsrs/testing:0.0.1-vanilla
+  manifest:
+    author: jhnnsrs
+    created_at: '2024-01-17T16:11:59.996067'
+    entrypoint: app
+    identifier: testing
+    requirements: []
+    scopes:
+    - read
+    version: 0.0.1
+  selectors: []
+- build_id: d381ec90-90f1-4ba0-9516-dffa8d34e037
+  deployed_at: '2024-01-17T16:13:43.661059'
+  deployment_id: 83df05c5-2f5a-480f-9f1a-94fd57872eb7
+  deployment_run: ef0e07d4-83bd-41b4-bc7d-0045988ebfb7
+  flavour: cuda
+  image: jhnnsrs/testing:0.0.1-cuda
+  manifest:
+    author: jhnnsrs
+    created_at: '2024-01-17T16:13:30.177467'
+    entrypoint: app
+    identifier: testing
+    requirements: []
+    scopes:
+    - read
+    version: 0.0.1
+  selectors:
+  - compute_capability: '3.5'
+    cuda_cores: 6000
+    cuda_version: '10.2'
+    required: true
+    type: cuda
+- build_id: ec981a3b-0e64-43a3-8c8b-41accfea5bb2
+  deployed_at: '2024-01-22T10:33:56.827211'
+  deployment_id: ec60879f-5455-46fc-9483-9cf5a2d66131
+  deployment_run: c3a9190d-de9d-4ca7-9da9-3d70d9c1f281
+  flavour: cuda
+  image: jhnnsrs/testing:0.0.2-cuda
+  inspection:
+    definitions:
+    - args:
+      - annotations: []
+        description: 'The input string
+
+
+          Returns'
+        key: input
+        kind: STRING
+        label: input
+        nullable: false
+        scope: GLOBAL
+      collections: []
+      description: 'This function prints the input string to
+
+        the console'
+      interfaces: []
+      kind: FUNCTION
+      name: Print String
+      port_groups: []
+      returns:
+      - annotations: []
+        key: return0
+        kind: STRING
+        nullable: false
+        scope: GLOBAL
+    size: 606452033
+  manifest:
+    author: jhnnsrs
+    created_at: '2024-01-22T10:30:52.268973'
+    entrypoint: app
+    identifier: testing
+    requirements: []
+    scopes:
+    - read
+    version: 0.0.2
+  selectors:
+  - compute_capability: '3.5'
+    cuda_cores: 6000
+    cuda_version: '10.2'
+    required: true
+    type: cuda
+latest_deployment_run: 11f43a7b-7b6c-4612-9580-08fbd0234f9a

@@ -1,0 +1,90 @@
+[tool.poetry]
+name = "kabinet-server"
+version = "0.1.0"
+description = ""
+authors = ["jhnnsrs <jhnnsrs@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+Django = "^4.2.3"
+channels = { extras = ["daphne"], version = "^4.0.0" }
+omegaconf = "^2.3.0"
+channels-redis = "^4.1.0"
+django-guardian = "^2.4.0"
+strawberry-graphql-django = ">=0.28"
+pytest-asyncio = "^0.21.1"
+django-choices-field = "^2.2.2"
+pydantic = "<2"
+psycopg = ">=3.1.8"
+django-probes = "^1.7.0"
+django-cors-headers = "^4.2.0"
+authentikate = ">=0.1.11"
+kante = ">=0.2.1"
+koherent = ">=0.1.2"
+django-redis = "^5.4.0"
+django-storages = "^1.14.2"
+boto3 = "^1.34.20"
+pillow = "^10.2.0"
+aiohttp = "^3.9.1"
+semver = "^3.0.2"
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main", "strawberry.ext.mypy_plugin", "pydantic.mypy"]
+ignore_missing_imports = true
+
+
+[tool.ruff]
+extend-select = ["ANN", "D1"]
+extend-ignore = ["ANN101", "ANN002", "ANN003", "D100", "ANN401"]
+fixable = ["ALL"]
+unfixable = []
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "tests",
+    "examples",
+    "**/migrations",
+]
+
+# Same as Black.
+line-length = 300
+
+
+[tool.django-stubs]
+django_settings_module = "kabinet.settings_test"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "kabinet.settings_test"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.0.280"
+black = "^23.7.0"
+pytest-django = "^4.5.2"
+mypy = "^1.7"
+django-stubs = "4.2.7"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
