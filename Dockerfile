@@ -10,9 +10,9 @@ RUN mkdir /workspaces
 
 
 # Copy dependencies
+COPY README.md /
 COPY pyproject.toml /
-COPY poetry.lock /
-RUN poetry install
+RUN poetry install --no-root
 
 
 # Install App

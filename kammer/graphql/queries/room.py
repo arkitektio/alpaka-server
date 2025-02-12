@@ -3,7 +3,7 @@ import json
 import logging
 
 import strawberry
-from ekke.types import Info
+from kante.types import Info
 from kammer import enums, inputs, models, scalars, types
 
 

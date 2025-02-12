@@ -2,7 +2,7 @@ from typing import AsyncGenerator
 
 import strawberry
 import strawberry_django
-from ekke.types import Info
+from kante.types import Info
 from kammer import models, scalars, types
 from kammer.channels import message_listen
 

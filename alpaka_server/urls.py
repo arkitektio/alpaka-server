@@ -24,5 +24,4 @@ from .basepath import basepath
 urlpatterns = [
     basepath("admin/", admin.site.urls),
     basepath("graphql", AsyncGraphQLView.as_view(schema=schema)),
-    basepath("api/", include("bridge.urls")),
 ]

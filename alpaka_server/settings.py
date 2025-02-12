@@ -50,7 +50,7 @@ INSTALLED_APPS = [
     "kante",
     "channels",
     "django_probes",
-    "bridge",
+    "kammer",
 ]
 
 
@@ -86,7 +86,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "kabinet_server.urls"
+ROOT_URLCONF = "alpaka_server.urls"
 
 TEMPLATES = [
     {
@@ -109,11 +109,10 @@ AUTHENTICATION_BACKENDS = (
     "guardian.backends.ObjectPermissionBackend",
 )
 
-WSGI_APPLICATION = "kabinet_server.wsgi.application"
-ASGI_APPLICATION = "kabinet_server.asgi.application"
+WSGI_APPLICATION = "alpaka_server.wsgi.application"
+ASGI_APPLICATION = "alpaka_server.asgi.application"
 
 
-ENSURED_REPOS = conf.get("ensured_repos", [])
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases

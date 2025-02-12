@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Tuple
 
 import strawberry
 import strawberry_django
-from ekke.types import Info
+from kante.types import Info
 from kammer import enums, inputs, models, scalars, types
 
 logger = logging.getLogger(__name__)

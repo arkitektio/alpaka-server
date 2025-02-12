@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from authentikate.models import Application
+from authentikate.models import App
 
 # Create your models here.
 
@@ -42,12 +42,12 @@ class Room(models.Model):
 class Agent(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE)
     name = models.CharField(max_length=10000, null=True)
-    app = models.ForeignKey(Application, on_delete=models.CASCADE)
+    app = models.ForeignKey(App, on_delete=models.CASCADE)
     user = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
         related_name="agents",
-        help_text="The user that created this comment",
+        help_text="The user that created this csomsment",
     )
 
 
