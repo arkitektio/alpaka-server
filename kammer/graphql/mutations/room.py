@@ -30,6 +30,21 @@ def create_room(info: Info, input: CreateRoomInput) -> types.Room:
     return exp
 
 
+
+@strawberry.input
+class DeleteRoomInput:
+    id: strawberry.ID
+
+
+def delete_room(info: Info, input: DeleteRoomInput) -> strawberry.ID:
+    
+    room = models.Room.objects.get(id=input.id)
+    
+    room.delete()
+
+    return input.id
+
+
 @strawberry.input
 class StructureInput:
     object: strawberry.ID
@@ -49,8 +64,8 @@ class SendMessageInput:
 def send(info: Info, input: SendMessageInput) -> types.Message:
 
     agent, _ = models.Agent.objects.get_or_create(
-        user=info.context.request.user,
-        app=info.context.request.app,
+        user_id=info.context.request.user.id,
+        app_id=info.context.request.app.id,
         room_id=input.room,
         name=input.agent_id,
     )

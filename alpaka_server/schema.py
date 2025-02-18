@@ -26,6 +26,8 @@ class Mutation:
     """The root mutation type"""
 
     create_room = strawberry_django.mutation(resolver=kammer_mutations.create_room)
+    
+    delete_room = strawberry_django.mutation(resolver=kammer_mutations.delete_room)
 
     send = strawberry_django.mutation(resolver=kammer_mutations.send)
 

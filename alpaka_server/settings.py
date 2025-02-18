@@ -149,7 +149,6 @@ AUTH_PASSWORD_VALIDATORS = [
 
 AUTHENTIKATE = {
     "PUBLIC_KEY": conf.lok.get("public_key", None),
-    "PUBLIC_KEY_PEM_FILE": conf.lok.get("public_key_pem_file", None),
     "KEY_TYPE": conf.lok.get("key_type", "RS256"),
     "AUTHORIZATION_HEADERS": [
         "Authorization",
