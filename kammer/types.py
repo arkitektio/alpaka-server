@@ -39,3 +39,4 @@ class Message:
     text: str
     agent: Agent
     attached_structures: list[Structure]
+    created_at: datetime.datetime
