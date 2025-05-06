@@ -7,6 +7,7 @@ import strawberry
 import strawberry_django
 from kante.types import Info
 from kammer import enums, filters, models, scalars
+from authentikate.strawberry.types import Client, User
 
 
 @strawberry_django.type(models.Structure, pagination=True)

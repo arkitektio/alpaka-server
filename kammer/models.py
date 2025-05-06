@@ -1,8 +1,7 @@
-from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from authentikate.models import App
+from authentikate.models import Client, User
 
 # Create your models here.
 
@@ -21,10 +20,10 @@ class Room(models.Model):
     title = models.CharField(max_length=1000, help_text="The Title of the Room")
     description = models.CharField(max_length=10000, null=True)
     creator = models.ForeignKey(
-        get_user_model(), on_delete=models.CASCADE, null=True, blank=True
+        User, on_delete=models.CASCADE, null=True, blank=True
     )
     pinned_by = models.ManyToManyField(
-        get_user_model(),
+        User,
         related_name="pinned_rooms",
         blank=True,
         help_text="The users that have pinned the workspace",
@@ -42,9 +41,9 @@ class Room(models.Model):
 class Agent(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE)
     name = models.CharField(max_length=10000, null=True)
-    app = models.ForeignKey(App, on_delete=models.CASCADE)
+    client = models.ForeignKey(Client, on_delete=models.CASCADE)
     user = models.ForeignKey(
-        get_user_model(),
+        User,
         on_delete=models.CASCADE,
         related_name="agents",
         help_text="The user that created this csomsment",
@@ -87,7 +86,7 @@ class Message(models.Model):
         help_text="The immediate descendends of the comments. Think typed Rich Representation",
     )
     adresses = models.ManyToManyField(
-        get_user_model(),
+        User,
         blank=True,
         related_name="addressed_in",
         help_text="The users that got mentioned in this comment",

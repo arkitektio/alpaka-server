@@ -1,45 +1,56 @@
-[tool.poetry]
-name = "kabinet-server"
+[project]
+name = "alpaka-server"
 version = "0.1.0"
 description = ""
-authors = ["jhnnsrs <jhnnsrs@gmail.com>"]
+authors = [{ name = "jhnnsrs", email = "jhnnsrs@gmail.com" }]
+requires-python = ">=3.12,<4"
 readme = "README.md"
+dependencies = [
+    "django>=5.2",
+    "kante==0.9.0",
+    "omegaconf>=2.3.0,<3",
+    "psycopg[binary]>=3",
+    "daphne>=4.0.0,<5",
+    "channels-redis>=4.1.0,<5",
+    "django-choices-field>=2.2.2,<3",
+    "authentikate>=0.9.0",
+    "namegenerator>=1.0.6,<2",
+    "ujson>=5.8.0,<6",
+    "aioredis>=2.0.1,<3",
+    "jsonpatch~=1.33",
+    "django-probes>=1.7.0,<2",
+    "rich>=14.0.0",
+    "koherent>=0.2.0",
+    "django-redis>=5.4.0",
+    "boto3>=1.38.9",
+    "aiohttp>=3.11.18",
+    "semver>=3.0.4",
+    "duckdb>=1.2.2",
+    "django-taggit>=6.1.0",
+    "litellm>=1.68.0",
+    "ollama>=0.4.8",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-Django = "^4.2.3"
-channels = { extras = ["daphne"], version = "^4.0.0" }
-omegaconf = "^2.3.0"
-channels-redis = "^4.1.0"
-django-guardian = "^2.4.0"
-strawberry-graphql-django = ">=0.28"
-pytest-asyncio = "^0.21.1"
-django-choices-field = "^2.2.2"
-pydantic = "<2"
-psycopg = ">=3.1.8"
-django-probes = "^1.7.0"
-django-cors-headers = "^4.2.0"
-authentikate = ">=0.1.11"
-kante = ">=0.2.1"
-koherent = ">=0.1.2"
-django-redis = "^5.4.0"
-django-storages = "^1.14.2"
-boto3 = "^1.34.20"
-pillow = "^10.2.0"
-aiohttp = "^3.9.1"
-semver = "^3.0.2"
-strawberry-graphql = "0.212"
+[dependency-groups]
+dev = [
+    "django-stubs>=5.2.0",
+    "mypy>=1.15.0",
+]
 
-[tool.mypy]
-plugins = ["mypy_django_plugin.main", "strawberry.ext.mypy_plugin", "pydantic.mypy"]
-ignore_missing_imports = true
+[tool.django-stubs]
+django_settings_module = "alpaka_server.settings"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "alpaka_server.settings"
 
 
 [tool.ruff]
+# Enable the pycodestyle (`E`) and Pyflakes (`F`) rules by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
 extend-select = ["ANN", "D1"]
-extend-ignore = ["ANN101", "ANN002", "ANN003", "D100", "ANN401"]
-fixable = ["ALL"]
-unfixable = []
+extend-ignore = [ "ANN002", "ANN003", "D100", "ANN401"]
+
 # Exclude a variety of commonly ignored directories.
 exclude = [
     ".bzr",
@@ -71,21 +82,20 @@ exclude = [
 line-length = 300
 
 
-[tool.django-stubs]
-django_settings_module = "kabinet.settings_test"
-
-[tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "kabinet.settings_test"
+# Assume Python 3.12.
+target-version = "py312"
 
 
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.0.280"
-black = "^23.7.0"
-pytest-django = "^4.5.2"
-mypy = "^1.7"
-django-stubs = "4.2.7"
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+upload_to_pypi = true
+branch = "main"
+build_command = "uv build"
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
 
+
+[tool.mypy]
+exclude = ["venv/", "tests/", "examples/"]
+plugins = ["mypy_django_plugin.main","pydantic.mypy"]
+ignore_missing_imports = true
+strict = true

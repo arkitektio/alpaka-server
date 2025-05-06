@@ -1,3 +1,10 @@
 from kante.channel import build_channel
+from pydantic import BaseModel, Field
 
-message_brodcast, message_listen = build_channel("message_broadcast")
+
+class MessageSignal(BaseModel):
+    message: int | None = Field(None, description="The message that was created.")
+
+
+
+message_channel = build_channel(MessageSignal)

@@ -4,7 +4,7 @@ import strawberry
 import strawberry_django
 from kante.types import Info
 from kammer import models, scalars, types
-from kammer.channels import message_listen
+from kammer.channels import message_channel
 
 
 @strawberry.type
@@ -31,12 +31,13 @@ async def room(
         name=agent_id,
     )
 
-    async for message in message_listen(info, ["room_" + str(room)]):
+    async for message in message_channel(info.context, ["room_" + str(room)]):
         print("Received message", message)
-        message_model = await models.Message.objects.prefetch_related("agent").aget(
-            id=message
-        )
-        if filter_own and message_model.agent == agent:
-            continue
+        if message.message:
+            message_model = await models.Message.objects.prefetch_related("agent").aget(
+                id=message
+            )
+            if filter_own and message_model.agent == agent:
+                continue
 
-        yield RoomEvent(message=message_model)
+            yield RoomEvent(message=message_model)

@@ -41,7 +41,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "corsheaders",
     "channels_redis",
     "guardian",
     "simple_history",
@@ -51,6 +50,7 @@ INSTALLED_APPS = [
     "channels",
     "django_probes",
     "kammer",
+    "llm",
 ]
 
 
@@ -67,16 +67,20 @@ CHANNEL_LAYERS = {
     },
 }
 
+
+OLLAMA_URL = conf.get("ollama_url", "http://ollama:11434")
+
 CORS_ALLOW_ALL_ORIGINS = True
 
 
 STRAWBERRY_DJANGO = {
     "FIELD_DESCRIPTION_FROM_HELP_TEXT": True,
     "TYPE_DESCRIPTION_FROM_MODEL_DOCSTRING": True,
+    "USE_DEPRECATED_FILTERS": True,
 }
 
+
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -87,6 +91,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "alpaka_server.urls"
+MY_SCRIPT_NAME = conf.get("force_script_name", "")
 
 TEMPLATES = [
     {
@@ -111,7 +116,6 @@ AUTHENTICATION_BACKENDS = (
 
 WSGI_APPLICATION = "alpaka_server.wsgi.application"
 ASGI_APPLICATION = "alpaka_server.asgi.application"
-
 
 
 # Database
