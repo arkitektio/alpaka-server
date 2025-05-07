@@ -30,9 +30,11 @@ class ThinkingBlockType(str, Enum):
     THINKING = "thinking"
     
     
+    
 @strawberry.enum(description="The type of the thinking block")
 class FeatureType(str, Enum):
     """A supported feature type for a large language model"""
 
     EMBEDDING = "embedding"
     CHATTING = "chatting"
+    

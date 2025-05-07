@@ -29,6 +29,7 @@ dependencies = [
     "django-taggit>=6.1.0",
     "litellm>=1.68.0",
     "ollama>=0.4.8",
+    "chromadb>=1.0.8",
 ]
 
 [dependency-groups]

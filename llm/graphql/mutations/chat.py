@@ -9,7 +9,7 @@ from kante.types import Info
 from django.conf import settings
 
 from llm.types import ChatResponse, Choice, ChatMessage, Usage, FunctionCall, ToolCall
-
+from llm import models, enums, filters, inputs
 from typing import List
 
 
@@ -104,10 +104,21 @@ def chat(info: Info, input: ChatInput) -> ChatResponse:
 
     serialized_messages = serialize_messages(input.messages)
     serialized_tools = serialize_tools(input.tools)
+    
+    # Check if the model is available
+    chat_model = models.LLMModel.objects.get(id=input.model)
+    
+    # type: ignore
+    if not chat_model:
+        raise Exception("Model not found")
+    
+
+    if not chat_model.is_available:
+        raise Exception("Model is not available")
 
     # Disallow streaming in this endpoint
     response = litellm.completion(
-        model=input.model,
+        model=chat_model.llm_string,
         messages=serialized_messages,
         tools=serialized_tools,
         api_base=settings.OLLAMA_URL,

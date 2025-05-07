@@ -7,7 +7,7 @@ from llm import enums
 @strawberry.input(description="A large language model to change with")
 class ProviderInput:
     """A large language model provider"""
-
+    description: Optional[str] = None
     name: str
     api_key: Optional[str] = None
     api_base: Optional[str] = None

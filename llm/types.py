@@ -4,7 +4,7 @@ from strawberry.types import Info
 from llm import models, enums, filters
 import strawberry_django
 from strawberry import scalars
-
+from strawberry import LazyType
 # --- Strawberry types ---
 
 # --- RETURN TYPES ---
@@ -57,7 +57,7 @@ class Choice:
     message: ChatMessage
     finish_reason: Optional[str] = None
     thinking_blocks: Optional[List[ThinkingBlock]] = None
-    reasoning_content= Optional[str] = None
+    reasoning_content: Optional[str] = None
 
 
 @strawberry.type
@@ -91,6 +91,17 @@ class LLMModel:
     id: strawberry.ID
     model_id: str
     label: str
+    provider: "Provider"
+    
+    features: List[enums.FeatureType] = strawberry_django.field(
+        description="The features supported by the model"
+    )
+    embedder_for: List[LazyType["ChromaCollection", "vector.types"]] = strawberry_django.field(
+        description="The collections that can be embedded with this model"
+    )
+    llm_string: str = strawberry_django.field(
+        description="The string to use for the LLM model"
+    )
 
 
 @strawberry_django.type(models.Provider, description="A provider of LLMs", filters=filters.ProviderFilter, pagination=True)

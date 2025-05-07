@@ -7,6 +7,7 @@ import strawberry
 import strawberry_django
 from kante.types import Info
 from kammer import enums, inputs, models, scalars, types
+from vector import inputs as vector_inputs
 
 logger = logging.getLogger(__name__)
 from django.contrib.auth import get_user_model
@@ -45,11 +46,6 @@ def delete_room(info: Info, input: DeleteRoomInput) -> strawberry.ID:
     return input.id
 
 
-@strawberry.input
-class StructureInput:
-    object: strawberry.ID
-    identifier: str
-
 
 @strawberry.input
 class SendMessageInput:
@@ -58,7 +54,7 @@ class SendMessageInput:
     text: str
     parent: strawberry.ID | None = None
     notify: bool | None = None
-    attach_structures: List[StructureInput] | None = None
+    attach_structures: List[vector_inputs.StructureInput] | None = None
 
 
 def send(info: Info, input: SendMessageInput) -> types.Message:
