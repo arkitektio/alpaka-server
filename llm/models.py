@@ -7,6 +7,7 @@ class Provider(models.Model):
     api_key = models.TextField(blank=True, null=True)
     api_base = models.URLField(blank=True, null=True)
     additional_config = models.JSONField(blank=True, null=True)
+    
 
 
 class LLMModel(models.Model):

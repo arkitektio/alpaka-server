@@ -1,6 +1,7 @@
 import aiohttp
 import litellm
 from .models import Provider, LLMModel
+from django.conf import settings
 
 
 async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
@@ -9,7 +10,7 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
 
     if provider.name == "ollama":
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{provider.api_base or 'http://ollama:11434'}/api/tags") as res:
+            async with session.get(f"{provider.api_base or settings.OLLAMA_URL}/api/tags") as res:
                 if res.status != 200:
                     raise Exception("Ollama failed")
                 data = await res.json()

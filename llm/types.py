@@ -37,6 +37,16 @@ class ChatMessage:
     tool_call_id: Optional[str] = None
     function_call: Optional[FunctionCall] = None
     tool_calls: Optional[List[ToolCall]] = None
+    
+    
+    
+    
+@strawberry.type
+class ThinkingBlock:
+    
+    type: enums.ThinkingBlockType
+    thinking: str
+    signature: Optional[str] = None
 
 
 @strawberry.type
@@ -46,6 +56,8 @@ class Choice:
     index: int
     message: ChatMessage
     finish_reason: Optional[str] = None
+    thinking_blocks: Optional[List[ThinkingBlock]] = None
+    reasoning_content= Optional[str] = None
 
 
 @strawberry.type

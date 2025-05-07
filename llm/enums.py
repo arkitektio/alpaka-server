@@ -21,3 +21,10 @@ class ToolType(str, Enum):
     """The type of the tool used in a chat conversation."""
 
     FUNCTION = "function"  # Currently the only one LiteLLM supports
+
+
+@strawberry.enum(description="The type of the thinking block")
+class ThinkingBlockType(str, Enum):
+    """The type of the thinking block in a chat conversation."""
+
+    THINKING = "thinking"
