@@ -36,3 +36,4 @@ class FeatureType(str, Enum):
 
     EMBEDDING = "embedding"
     CHATTING = "chatting"
+    CHAT = "chat"
