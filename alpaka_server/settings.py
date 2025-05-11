@@ -70,7 +70,7 @@ CHANNEL_LAYERS = {
 
 
 OLLAMA_URL = conf.get("ollama_url", "http://ollama:11434")
-CHROMA_DB_HOST = conf.get("chroma_db_Host", "chromadb")
+CHROMA_DB_HOST = conf.get("chroma_db_host", "chromadb")
 CHROMA_DB_PORT = conf.get("chroma_db_port", 8000)
 
 CORS_ALLOW_ALL_ORIGINS = True
@@ -155,11 +155,13 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 AUTHENTIKATE = {
-    "ISSUERS": [{
-        "iss": "lok",
-        "kind": "rsa",
-        "public_key": conf.lok.get("public_key", None),
-    }]
+    "ISSUERS": [
+        {
+            "iss": "lok",
+            "kind": "rsa",
+            "public_key": conf.lok.get("public_key", None),
+        }
+    ]
 }
 
 
