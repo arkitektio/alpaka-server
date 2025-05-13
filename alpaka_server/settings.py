@@ -161,7 +161,8 @@ AUTHENTIKATE = {
             "kind": "rsa",
             "public_key": conf.lok.get("public_key", None),
         }
-    ]
+    ],
+    "STATIC_TOKENS": conf.lok.get("static_tokens", {}),
 }
 
 
