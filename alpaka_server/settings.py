@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     "kammer",
     "llm",
     "vector",
+    "health_check",  # required for health checks
+    "health_check.db",  # stock Django health checkers
 ]
 
 
