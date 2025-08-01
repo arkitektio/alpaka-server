@@ -9,6 +9,7 @@ class ProviderInput:
     """A large language model provider"""
     description: Optional[str] = None
     name: str
+    kind: enums.ProviderKind
     api_key: Optional[str] = None
     api_base: Optional[str] = None
     additional_config: Optional[scalars.JSON] = None
