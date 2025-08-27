@@ -37,3 +37,29 @@ class FeatureType(str, Enum):
     EMBEDDING = "embedding"
     CHATTING = "chatting"
     CHAT = "chat"
+
+
+@strawberry.enum(description="The kind of LLM provider")
+class ProviderKind(str, Enum):
+    """The kind/type of LLM provider"""
+
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GOOGLE = "google"
+    COHERE = "cohere"
+    MISTRAL = "mistral"
+    HUGGINGFACE = "huggingface"
+    OLLAMA = "ollama"
+    AZURE = "azure"
+    AWS = "aws"
+    VERTEX_AI = "vertex_ai"
+    PALM = "palm"
+    REPLICATE = "replicate"
+    TOGETHER_AI = "together_ai"
+    ANYSCALE = "anyscale"
+    FIREWORKS_AI = "fireworks_ai"
+    DEEPINFRA = "deepinfra"
+    PERPLEXITY = "perplexity"
+    GROQ = "groq"
+    CUSTOM = "custom"
+    UNKNOWN = "unknown"

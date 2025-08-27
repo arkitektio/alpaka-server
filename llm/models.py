@@ -1,6 +1,7 @@
 # api/models.py
 from django.db import models
-from llm.enums import FeatureType
+from llm.enums import FeatureType, ProviderKind
+import litellm
 
 class Provider(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -12,9 +13,13 @@ class Provider(models.Model):
         "authentikate.User", on_delete=models.CASCADE, null=True, blank=True
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    kind = models.CharField(
+        max_length=50, choices=[(kind.value, kind.name) for kind in ProviderKind], default=ProviderKind.UNKNOWN.value
+    )
     
     class Meta:
         unique_together = ("name", "api_key")
+        
     
 
 
@@ -40,4 +45,9 @@ class LLMModel(models.Model):
     
     def has_feature(self, feature: FeatureType):
         return feature in self.get_features()
+    
+    @property
+    def provider_kind(self) -> ProviderKind:
+        """Get the provider kind from the related provider"""
+        return self.provider.kind
    

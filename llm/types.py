@@ -114,3 +114,7 @@ class Provider:
     api_base: str
     additional_config: scalars.JSON
     models: List[LLMModel]
+    kind: enums.ProviderKind = strawberry_django.field(
+        description="The kind of the provider",
+        default=enums.ProviderKind.UNKNOWN,
+    )

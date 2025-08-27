@@ -1,6 +1,7 @@
 import aiohttp
 import litellm
 from .models import Provider, LLMModel
+from .enums import ProviderKind
 from django.conf import settings
 
 
@@ -23,7 +24,10 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
     """Refresh the models for a given provider."""
     new_models = []
 
-    if provider.name == "ollama":
+    # Use the dynamic provider kind detection
+    provider_kind = provider.kind
+    
+    if provider_kind == ProviderKind.OLLAMA:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{provider.api_base or settings.OLLAMA_URL}/api/tags") as res:
                 if res.status != 200:
@@ -44,6 +48,7 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
 
     else:
         try:
+            # For all other providers, use LiteLLM's list_models
             models = litellm.list_models(api_key=provider.api_key, api_base=provider.api_base)
             for model in models.get("data", []):
                 model_id = model["id"]
@@ -58,6 +63,6 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
                 )
                 new_models.append(obj)
         except Exception as e:
-            raise Exception(f"Failed to list models: {e}")
+            raise Exception(f"Failed to list models for {provider_kind.value} provider: {e}")
 
     return new_models
