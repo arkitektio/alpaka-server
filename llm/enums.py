@@ -63,3 +63,4 @@ class ProviderKind(str, Enum):
     GROQ = "groq"
     CUSTOM = "custom"
     UNKNOWN = "unknown"
+    OPENROUTER = "openrouter"

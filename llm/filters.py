@@ -22,7 +22,7 @@ class LLMModelFilter:
         """Filter by search term"""
         if self.search is None:
             return queryset
-        return queryset.filter(text__icontains=self.search)
+        return queryset.filter(label__icontains=self.search)
 
 
 @strawberry_django.filter(models.Provider, description="Filter for Provider")

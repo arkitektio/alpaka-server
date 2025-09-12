@@ -115,13 +115,17 @@ def chat(info: Info, input: ChatInput) -> ChatResponse:
 
     if not chat_model.is_available:
         raise Exception("Model is not available")
+    
+    
+    
 
     # Disallow streaming in this endpoint
     response = litellm.completion(
         model=chat_model.llm_string,
         messages=serialized_messages,
         tools=serialized_tools,
-        api_base=settings.OLLAMA_URL,
+        api_base=chat_model.provider.api_base,
+        api_key=chat_model.provider.api_key,
         stream=False,
     )
 

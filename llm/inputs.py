@@ -8,7 +8,7 @@ from llm import enums
 class ProviderInput:
     """A large language model provider"""
     description: Optional[str] = None
-    name: str
+    name: Optional[str] = None
     kind: enums.ProviderKind
     api_key: Optional[str] = None
     api_base: Optional[str] = None
