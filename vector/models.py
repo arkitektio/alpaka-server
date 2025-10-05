@@ -1,6 +1,6 @@
 # api/models.py
 from django.db import models
-from authentikate.models import User
+from authentikate.models import User, Organization
 
 
 class ChromaCollection(models.Model):
@@ -10,8 +10,11 @@ class ChromaCollection(models.Model):
 
     # Optional: ownership or visibility
     owner = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
-    embedder = models.ForeignKey(
-        "llm.LLMModel", on_delete=models.CASCADE, related_name="embedder_for"
+    embedder = models.ForeignKey("llm.LLMModel", on_delete=models.CASCADE, related_name="embedder_for")
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this provider belongs to",
     )
 
     def __str__(self):
