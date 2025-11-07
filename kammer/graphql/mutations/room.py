@@ -26,6 +26,8 @@ def create_room(info: Info, input: CreateRoomInput) -> types.Room:
     exp = models.Room.objects.create(
         title=input.title or "Untitled",
         description=input.description or "No description",
+        creator=creator,
+        organization=info.context.request.organization,
     )
 
     return exp
