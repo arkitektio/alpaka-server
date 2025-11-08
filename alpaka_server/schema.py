@@ -57,6 +57,7 @@ class Mutation:
 
     delete_room = strawberry_django.mutation(resolver=kammer_mutations.delete_room)
     create_provider = strawberry_django.mutation(resolver=llm_mutations.create_provider)
+    delete_provider = strawberry_django.mutation(resolver=llm_mutations.delete_provider)
 
     send = strawberry_django.mutation(resolver=kammer_mutations.send)
     chat = strawberry_django.mutation(resolver=llm_mutations.chat)
