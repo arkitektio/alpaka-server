@@ -2,7 +2,7 @@
 from django.db import models
 from llm.enums import FeatureType, ProviderKind
 import litellm
-from authentikate.models import Organization
+from authentikate.models import Organization, User
 
 
 class Provider(models.Model):
@@ -29,6 +29,9 @@ class LLMModel(models.Model):
     model_id = models.CharField(max_length=255)
     label = models.CharField(max_length=255)
     features = models.JSONField(default=list, blank=True, null=True)
+    pinned_by = models.ManyToManyField(User, related_name="pinned_models")
+    input_modalities = models.JSONField(default=list, blank=True, null=True)
+    output_modalities = models.JSONField(default=list, blank=True, null=True)
 
     @property
     def is_available(self):
@@ -48,3 +51,22 @@ class LLMModel(models.Model):
     def provider_kind(self) -> ProviderKind:
         """Get the provider kind from the related provider"""
         return self.provider.kind
+
+
+class DefaultUse(models.Model):
+    kind = models.CharField(max_length=600)
+    model = models.ForeignKey(LLMModel, on_delete=models.CASCADE)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this provider belongs to",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="The organization this provider belongs to",
+    )
+
+    class Meta:
+        unique_together = ("kind", "organization", "user")

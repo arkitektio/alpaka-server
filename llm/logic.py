@@ -20,6 +20,41 @@ def detect_features(model_id: str) -> list[str]:
     return features
 
 
+def detect_modalities(model_id: str, model_data: dict | None = None) -> tuple[list[str], list[str]]:
+    """Detect modalities supported by the model based on its ID/name or data."""
+    input_modalities = ["text"]
+    output_modalities = ["text"]
+
+    if model_data:
+        architecture = model_data.get("architecture")
+        if architecture:
+            modality = architecture.get("modality")
+            if modality:
+                # Example: "text+image->text"
+                if "->" in modality:
+                    inputs, outputs = modality.split("->")
+                    if "image" in inputs:
+                        input_modalities.append("image")
+                    if "audio" in inputs:
+                        input_modalities.append("audio")
+
+                    if "image" in outputs:
+                        output_modalities.append("image")
+                    if "audio" in outputs:
+                        output_modalities.append("audio")
+
+                return list(set(input_modalities)), list(set(output_modalities))
+
+    # Fallback to ID based detection
+    if "vision" in model_id or "gpt-4-vision" in model_id or "claude-3" in model_id or "gpt-4o" in model_id:
+        input_modalities.append("image")
+
+    if "dall-e" in model_id or "stable-diffusion" in model_id:
+        output_modalities.append("image")
+
+    return list(set(input_modalities)), list(set(output_modalities))
+
+
 async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
     """Refresh the models for a given provider."""
     new_models = []
@@ -35,19 +70,22 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
                 for model in data.get("models", []):
                     model_id = model["name"]
                     features = detect_features(model_id)
+                    input_modalities, output_modalities = detect_modalities(model_id)
                     obj, _ = await LLMModel.objects.aupdate_or_create(
                         provider=provider,
                         model_id=model_id,
                         defaults={
                             "label": f"Ollama - {model_id}",
                             "features": features,
-                        }
+                            "input_modalities": input_modalities,
+                            "output_modalities": output_modalities,
+                        },
                     )
                     new_models.append(obj)
 
     elif provider_kind == ProviderKind.OPENROUTER.value:
         # Use OpenRouter "user models" list (filtered to the API key / provider prefs)
-        base = (provider.api_base.rstrip("/") if provider.api_base else "https://openrouter.ai/api/v1")
+        base = provider.api_base.rstrip("/") if provider.api_base else "https://openrouter.ai/api/v1"
         url = f"{base}/models/user"
         headers = {
             "Authorization": f"Bearer {provider.api_key}",
@@ -65,6 +103,7 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
             if not model_id:
                 continue
             features = detect_features(model_id)
+            input_modalities, output_modalities = detect_modalities(model_id, model)
             label = model.get("name") or model_id
             obj, _ = await LLMModel.objects.aupdate_or_create(
                 provider=provider,
@@ -72,7 +111,9 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
                 defaults={
                     "label": f"OpenRouter - {label}",
                     "features": features,
-                }
+                    "input_modalities": input_modalities,
+                    "output_modalities": output_modalities,
+                },
             )
             new_models.append(obj)
 
@@ -83,13 +124,16 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
             for model in models.get("data", []):
                 model_id = model["id"]
                 features = detect_features(model_id)
+                input_modalities, output_modalities = detect_modalities(model_id, model)
                 obj, _ = await LLMModel.objects.aupdate_or_create(
                     provider=provider,
                     model_id=model_id,
                     defaults={
                         "label": f"{provider.name} - {model_id}",
                         "features": features,
-                    }
+                        "input_modalities": input_modalities,
+                        "output_modalities": output_modalities,
+                    },
                 )
                 new_models.append(obj)
         except Exception as e:

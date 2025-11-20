@@ -31,7 +31,7 @@ class Query:
 
     documents = strawberry_django.field(resolver=vector_queries.documents)
 
-    room_stats: kammer_types.RoomStats = strawberry.field(resolver=kammer_types.RoomStatsResolver)
+    room_stats: kammer_types.RoomStats = strawberry_django.field(resolver=kammer_types.RoomStatsResolver)
 
     @strawberry_django.field
     def llm_model(self, id: strawberry.ID) -> llm_types.LLMModel:
@@ -62,6 +62,8 @@ class Mutation:
     send = strawberry_django.mutation(resolver=kammer_mutations.send)
     chat = strawberry_django.mutation(resolver=llm_mutations.chat)
     pull = strawberry_django.mutation(resolver=llm_mutations.pull)
+    generate_image = strawberry_django.mutation(resolver=llm_mutations.generate_image)
+    use_model_for = strawberry_django.mutation(resolver=llm_mutations.use_model_for)
 
     create_collection = strawberry_django.mutation(resolver=vector_mutations.create_collection)
     ensure_collection = strawberry_django.mutation(resolver=vector_mutations.ensure_collection)

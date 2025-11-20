@@ -28,8 +28,8 @@ class ThinkingBlockType(str, Enum):
     """The type of the thinking block in a chat conversation."""
 
     THINKING = "thinking"
-    
-    
+
+
 @strawberry.enum(description="The type of the thinking block")
 class FeatureType(str, Enum):
     """A supported feature type for a large language model"""
@@ -37,6 +37,12 @@ class FeatureType(str, Enum):
     EMBEDDING = "embedding"
     CHATTING = "chatting"
     CHAT = "chat"
+
+
+@strawberry.enum(description="Modalities")
+class InputModality(str, Enum):
+    IMAGE = "image"
+    TEXT = "text"
 
 
 @strawberry.enum(description="The kind of LLM provider")

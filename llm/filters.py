@@ -11,6 +11,8 @@ class LLMModelFilter:
 
     ids: list[strawberry.ID] | None
     search: Optional[str] | None
+    input_modalities: list[enums.InputModality] | None
+    output_modalities: list[enums.InputModality] | None
 
     def filter_ids(self, queryset, info):
         """Filter by IDs"""
@@ -23,6 +25,16 @@ class LLMModelFilter:
         if self.search is None:
             return queryset
         return queryset.filter(label__icontains=self.search)
+
+    def filter_input_modalities(self, queryset, info):
+        if self.input_modalities is None:
+            return queryset
+        return queryset.filter(input_modalities__contains=self.input_modalities)
+
+    def filter_output_modalities(self, queryset, info):
+        if self.output_modalities is None:
+            return queryset
+        return queryset.filter(output_modalities__contains=self.output_modalities)
 
 
 @strawberry_django.filter(models.Provider, description="Filter for Provider")
