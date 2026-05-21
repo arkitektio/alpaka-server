@@ -18,6 +18,7 @@ from kammer import inputs
 class CreateRoomInput:
     description: str | None = None
     title: str | None = None
+    talking_about: List[vector_inputs.StructureInput] | None = None
 
 
 def create_room(info: Info, input: CreateRoomInput) -> types.Room:
@@ -29,6 +30,10 @@ def create_room(info: Info, input: CreateRoomInput) -> types.Room:
         creator=creator,
         organization=info.context.request.organization,
     )
+    if input.talking_about:
+        for structure in input.talking_about:
+            structure, _ = models.Structure.objects.get_or_create(object=structure.object, identifier=structure.identifier)
+            exp.contextual_structures.add(structure)
 
     return exp
 

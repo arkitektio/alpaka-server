@@ -30,6 +30,7 @@ class Room(models.Model):
         help_text="The organization this room belongs to",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="The time this room got created")
+    contextual_structures = models.ManyToManyField(Structure)
 
     @property
     def messages(self):
