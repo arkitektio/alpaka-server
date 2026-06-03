@@ -58,6 +58,8 @@ class Message(models.Model):
     Message represent the message of an agent on a room
     """
 
+    room = models.ForeignKey(Room, on_delete=models.CASCADE)
+
     attached_structures = models.ManyToManyField(Structure)
     targets = models.ManyToManyField(
         Agent,

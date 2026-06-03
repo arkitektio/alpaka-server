@@ -43,6 +43,8 @@ class FeatureType(str, Enum):
 class InputModality(str, Enum):
     IMAGE = "image"
     TEXT = "text"
+    AUDIO = "audio"
+    VIDEO = "video"
 
 
 @strawberry.enum(description="The kind of LLM provider")

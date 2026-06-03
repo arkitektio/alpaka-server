@@ -22,8 +22,11 @@ from django.urls import path, include
 from health_check.views import MainView
 from django.views.decorators.csrf import csrf_exempt
 
+reload = "ss"
+
+
 urlpatterns = [
     dynamicpath("admin/", admin.site.urls),
     dynamicpath("llm/", include("llm.urls")),
-    dynamicpath("ht",  csrf_exempt(MainView.as_view()), name="health_check"),
+    dynamicpath("ht", csrf_exempt(MainView.as_view()), name="health_check"),
 ]

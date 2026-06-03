@@ -8,6 +8,11 @@ from strawberry_django.filters import FilterLookup
 from vector import inputs as vector_inputs
 
 
+@strawberry_django.order_type(models.Room)
+class MessageOrder:
+    created_at: auto
+
+
 @strawberry_django.filter(models.Message)
 class MessageFilter:
     ids: list[strawberry.ID] | None

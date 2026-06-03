@@ -10,6 +10,8 @@ from kante.types import Info
 from kammer import enums, filters, models, scalars
 from authentikate.strawberry.types import Client, User, Organization
 from .type_gen import create_stats_type
+import kante
+from strawberry_django.pagination import OffsetPaginationInput
 
 
 def build_prescoped_queryset(info, queryset, field="organization"):
@@ -56,11 +58,26 @@ class Agent:
     room: Room
 
 
-@strawberry_django.type(models.Message, pagination=True, filters=filters.MessageFilter)
+@kante.django_type(models.Message, pagination=True, filters=filters.MessageFilter, ordering=filters.MessageOrder)
 class Message:
     id: strawberry.ID
-    title: str
     text: str
+    room: Room
     agent: Agent
     attached_structures: List[LazyType["Structure", "vector.types"]] = strawberry_django.field(description="The collections that can be embedded with this model")
     created_at: datetime.datetime
+
+    @kante.django_field
+    def before(self, info: Info, filters: filters.MessageFilter | None = None, pagination: OffsetPaginationInput | None = None) -> List["Message"]:
+        """Get the message before this one in the same room"""
+        qs = models.Message.objects.filter(room=self.agent.room, created_at__lt=self.created_at).order_by("-created_at")
+        if filters:
+            qs = filters.filter(qs, info)
+        if pagination:
+            qs = qs[pagination.offset or 0 : (pagination.offset or 0) + pagination.limit]
+        return qs
+
+    @kante.django_field
+    def title(self, info: Info) -> str:
+        """Get the title of the message, which is the first 5 words"""
+        return " ".join(self.text.split()[:5])

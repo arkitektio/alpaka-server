@@ -15,6 +15,7 @@ from koherent.strawberry.extension import KoherentExtension
 from authentikate.strawberry.extension import AuthentikateExtension
 from typing import List
 import strawberry_django
+import kante
 
 
 @strawberry.type
@@ -23,6 +24,9 @@ class Query:
 
     room = strawberry_django.field(resolver=kammer_queries.room)
     rooms: list[kammer_types.Room] = strawberry_django.field()
+
+    message: kammer_types.Message = kante.django_field()
+    messages: list[kammer_types.Message] = kante.django_field()
 
     providers: list[llm_types.Provider] = strawberry_django.field()
     llm_models: list[llm_types.LLMModel] = strawberry_django.field()

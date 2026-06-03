@@ -69,7 +69,7 @@ def send(info: Info, input: SendMessageInput) -> types.Message:
         name=input.agent_id,
     )
 
-    message = models.Message.objects.create(agent=agent, text=input.text)
+    message = models.Message.objects.create(agent=agent, room_id=input.room, text=input.text)
     if input.attach_structures:
         for structure in input.attach_structures:
             structure, _ = models.Structure.objects.get_or_create(object=structure.object, identifier=structure.identifier)
