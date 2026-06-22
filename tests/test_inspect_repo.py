@@ -1,13 +1,9 @@
 import pytest
-from django.contrib.auth import get_user_model
-from alpaka_server.schema import schema
 
-from kante.context import HttpContext
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_github_repo(db, authenticated_context: HttpContext):
-    
+async def test_create_room(aexecute, authenticated_context):
     assert authenticated_context.request.organization is not None, "Organization should be set"
 
     query = """
@@ -19,12 +15,8 @@ async def test_create_github_repo(db, authenticated_context: HttpContext):
         }
     """
 
-    sub = await schema.execute(
-        query,
-        context_value=authenticated_context,
-    )
+    sub = await aexecute(query)
 
     assert sub.data, sub.errors
-
     assert sub.data["createRoom"]["id"] is not None
     assert sub.data["createRoom"]["title"] == "mytitle"

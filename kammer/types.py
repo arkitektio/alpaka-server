@@ -1,10 +1,9 @@
 import datetime
 import json
 from enum import Enum
-from typing import Any, Dict, ForwardRef, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, ForwardRef, List, Literal, Optional, Union
 
 import strawberry
-from strawberry import LazyType
 import strawberry_django
 from kante.types import Info
 from kammer import enums, filters, models, scalars
@@ -64,7 +63,7 @@ class Message:
     text: str
     room: Room
     agent: Agent
-    attached_structures: List[LazyType["Structure", "vector.types"]] = strawberry_django.field(description="The collections that can be embedded with this model")
+    attached_structures: List[Annotated["Structure", strawberry.lazy("vector.types")]] = strawberry_django.field(description="The collections that can be embedded with this model")
     created_at: datetime.datetime
 
     @kante.django_field

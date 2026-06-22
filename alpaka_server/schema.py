@@ -82,4 +82,4 @@ class Subscription:
     room = strawberry.subscription(resolver=kammer_subscriptions.room)
 
 
-schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription, extensions=[DjangoOptimizerExtension, AuthentikateExtension, KoherentExtension], types=[])
+schema = strawberry.federation.Schema(query=Query, mutation=Mutation, subscription=Subscription, extensions=[DjangoOptimizerExtension, AuthentikateExtension, KoherentExtension], types=[])

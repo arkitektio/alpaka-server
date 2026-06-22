@@ -1,10 +1,9 @@
 import strawberry
-from typing import Optional, List
+from typing import Annotated, Optional, List
 from strawberry.types import Info
 from llm import models, enums, filters, scalars as llmscalars
 import strawberry_django
 from strawberry import scalars
-from strawberry import LazyType
 # --- Strawberry types ---
 
 # --- RETURN TYPES ---
@@ -98,7 +97,7 @@ class LLMModel:
     provider: "Provider"
 
     features: List[enums.FeatureType] = strawberry_django.field(description="The features supported by the model")
-    embedder_for: List[LazyType["ChromaCollection", "vector.types"]] = strawberry_django.field(description="The collections that can be embedded with this model")
+    embedder_for: List[Annotated["ChromaCollection", strawberry.lazy("vector.types")]] = strawberry_django.field(description="The collections that can be embedded with this model")
     llm_string: str = strawberry_django.field(description="The string to use for the LLM model")
     input_modalities: list[enums.InputModality] = strawberry_django.field(description="The input modalities")
     output_modalities: list[enums.InputModality] = strawberry_django.field(description="The input modalities")

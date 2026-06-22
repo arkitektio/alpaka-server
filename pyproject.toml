@@ -6,20 +6,20 @@ authors = [{ name = "jhnnsrs", email = "jhnnsrs@gmail.com" }]
 requires-python = ">=3.12,<4"
 readme = "README.md"
 dependencies = [
-    "django>=5.2",
+    "django>=6",
     "omegaconf>=2.3.0,<3",
-    "psycopg[binary]>=3",
+    "psycopg[binary]>=3.2",
     "daphne>=4.0.0,<5",
     "channels-redis>=4.1.0,<5",
-    "django-choices-field>=2.2.2,<3",
-    "authentikate>=0.32",
-    "namegenerator>=1.0.6,<2",
+    "django-choices-field>=3",
+    "authentikate>=2.1.2",
+    "kante>=1.1.0",
     "ujson>=5.8.0,<6",
     "aioredis>=2.0.1,<3",
     "jsonpatch~=1.33",
     "django-probes>=1.7.0,<2",
     "rich>=14.0.0",
-    "koherent>=0.2.0",
+    "koherent>=3.0.2",
     "django-redis>=5.4.0",
     "boto3>=1.38.9",
     "aiohttp>=3.11.18",
@@ -35,6 +35,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "django-stubs>=5.2.0",
+    "dokker>=2.5",
     "moto>=5.1.11",
     "mypy>=1.15.0",
     "pytest-asyncio>=1.1.0",
