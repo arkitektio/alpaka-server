@@ -40,7 +40,7 @@ class Document:
 
 
 
-@strawberry_django.type(models.ChromaCollection, description="A collection of documents searchable by string", filters=filters.ChromaCollectionFilter, pagination=True)
+@strawberry_django.type(models.ChromaCollection, description="A collection of documents searchable by string", filters=filters.ChromaCollectionFilter, ordering=filters.ChromaCollectionOrder, pagination=True)
 class ChromaCollection:
     """A provider of LLMs"""
     id: strawberry.ID

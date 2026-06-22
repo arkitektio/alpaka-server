@@ -141,6 +141,29 @@ async def test_message_filter_and_order_combined(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_room_order_title(aexecute):
+    """``ordering`` is now exposed on the Room type and sorts by ``title``."""
+    await seed()  # creates "Weather room" and "Cooking room"
+
+    query = """
+        query Rooms($ordering: [RoomOrder!]) {
+            rooms(ordering: $ordering) {
+                title
+            }
+        }
+    """
+
+    asc = await aexecute(query, {"ordering": [{"title": "ASC"}]})
+    assert asc.data, asc.errors
+    assert [r["title"] for r in asc.data["rooms"]] == ["Cooking room", "Weather room"]
+
+    desc = await aexecute(query, {"ordering": [{"title": "DESC"}]})
+    assert desc.data, desc.errors
+    assert [r["title"] for r in desc.data["rooms"]] == ["Weather room", "Cooking room"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_room_filter_search(aexecute):
     """``search`` filters rooms by a case-insensitive substring of ``title``."""
     await seed()

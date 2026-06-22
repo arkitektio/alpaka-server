@@ -32,8 +32,8 @@ def seed():
         output_modalities=["text"],
     )
 
-    collection = vector_models.ChromaCollection.objects.create(name="recipes", embedder=gpt)
-    vector_models.ChromaCollection.objects.create(name="weather", embedder=gpt)
+    collection = vector_models.ChromaCollection.objects.create(name="recipes", embedder=gpt, organization=org)
+    vector_models.ChromaCollection.objects.create(name="weather", embedder=gpt, organization=org)
 
     return {
         "org": org,
@@ -81,6 +81,48 @@ async def test_provider_filter_ids(aexecute):
 
     assert result.data, result.errors
     assert [p["id"] for p in result.data["providers"]] == [str(data["providers"]["ollama"].id)]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_provider_order_name(aexecute):
+    """``ordering`` is exposed on the Provider type and sorts by ``name``."""
+    await seed()  # creates "OpenAI" and "Ollama"
+
+    query = """
+        query Providers($ordering: [ProviderOrder!]) {
+            providers(ordering: $ordering) {
+                name
+            }
+        }
+    """
+
+    asc = await aexecute(query, {"ordering": [{"name": "ASC"}]})
+    assert asc.data, asc.errors
+    assert [p["name"] for p in asc.data["providers"]] == ["Ollama", "OpenAI"]
+
+    desc = await aexecute(query, {"ordering": [{"name": "DESC"}]})
+    assert desc.data, desc.errors
+    assert [p["name"] for p in desc.data["providers"]] == ["OpenAI", "Ollama"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_llm_model_order_label(aexecute):
+    """``ordering`` is exposed on the LLMModel type and sorts by ``label``."""
+    await seed()  # creates "GPT-4" and "Whisper"
+
+    query = """
+        query Models($ordering: [LLMModelOrder!]) {
+            llmModels(ordering: $ordering) {
+                label
+            }
+        }
+    """
+
+    result = await aexecute(query, {"ordering": [{"label": "DESC"}]})
+    assert result.data, result.errors
+    assert [m["label"] for m in result.data["llmModels"]] == ["Whisper", "GPT-4"]
 
 
 @pytest.mark.django_db(transaction=True)

@@ -30,7 +30,7 @@ def build_prescoper(field="organization"):
     return prescoper
 
 
-@strawberry_django.type(models.Room, pagination=True, filters=filters.RoomFilter)
+@strawberry_django.type(models.Room, pagination=True, filters=filters.RoomFilter, ordering=filters.RoomOrder)
 class Room:
     id: strawberry.ID
     title: str
@@ -51,7 +51,7 @@ RoomStats, RoomStatsResolver = create_stats_type(
 )
 
 
-@strawberry_django.type(models.Agent, pagination=True)
+@strawberry_django.type(models.Agent, pagination=True, filters=filters.AgentFilter, ordering=filters.AgentOrder)
 class Agent:
     id: strawberry.ID
     room: Room

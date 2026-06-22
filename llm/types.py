@@ -87,7 +87,7 @@ class ImageReponse:
     image: llmscalars.Base64EncodedString
 
 
-@strawberry_django.type(models.LLMModel, description="A LLM model to chage with", filters=filters.LLMModelFilter, pagination=True)
+@strawberry_django.type(models.LLMModel, description="A LLM model to chage with", filters=filters.LLMModelFilter, ordering=filters.LLMModelOrder, pagination=True)
 class LLMModel:
     """A large language model"""
 
@@ -103,7 +103,7 @@ class LLMModel:
     output_modalities: list[enums.InputModality] = strawberry_django.field(description="The input modalities")
 
 
-@strawberry_django.type(models.Provider, description="A provider of LLMs", filters=filters.ProviderFilter, pagination=True)
+@strawberry_django.type(models.Provider, description="A provider of LLMs", filters=filters.ProviderFilter, ordering=filters.ProviderOrder, pagination=True)
 class Provider:
     """A provider of LLMs"""
 
@@ -119,7 +119,7 @@ class Provider:
     )
 
 
-@strawberry_django.type(models.DefaultUse, description="A default use for a model")
+@strawberry_django.type(models.DefaultUse, description="A default use for a model", filters=filters.DefaultUseFilter, ordering=filters.DefaultUseOrder, pagination=True)
 class DefaultUse:
     id: strawberry.ID
     model: "LLMModel"

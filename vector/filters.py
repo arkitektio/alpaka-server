@@ -1,7 +1,14 @@
 import strawberry
 import strawberry_django
 from django.db.models import Q
+from strawberry import auto
 from vector import models
+
+
+@strawberry_django.order_type(models.ChromaCollection)
+class ChromaCollectionOrder:
+    name: auto
+    created_at: auto
 
 
 @strawberry_django.filter_type(models.ChromaCollection, description="Filter for ChromaCollection")
