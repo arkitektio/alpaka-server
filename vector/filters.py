@@ -1,24 +1,17 @@
-from typing import Optional
-
 import strawberry
 import strawberry_django
-from vector import enums, models
+from django.db.models import Q
+from vector import models
 
 
-
-@strawberry_django.filter(models.ChromaCollection, description="Filter for ChromaCollection")
+@strawberry_django.filter_type(models.ChromaCollection, description="Filter for ChromaCollection")
 class ChromaCollectionFilter:
-    """Filter for Provider"""
+    """Filter for ChromaCollection"""
 
-    search: Optional[str] | None
-    ids: list[strawberry.ID] | None
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
 
-    def filter_ids(self, queryset, info):
-        if self.ids is None:
-            return queryset
-        return queryset.filter(id__in=self.ids)
-
-    def filter_search(self, queryset, info):
-        if self.search is None:
-            return queryset
-        return queryset.filter(title__icontains=self.search)
+    @strawberry_django.filter_field
+    def search(self, value: str, prefix: str) -> Q:
+        return Q(**{f"{prefix}name__icontains": value})

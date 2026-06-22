@@ -71,7 +71,7 @@ class Message:
         """Get the message before this one in the same room"""
         qs = models.Message.objects.filter(room=self.agent.room, created_at__lt=self.created_at).order_by("-created_at")
         if filters:
-            qs = filters.filter(qs, info)
+            qs = strawberry_django.filters.apply(filters, qs, info)
         if pagination:
             qs = qs[pagination.offset or 0 : (pagination.offset or 0) + pagination.limit]
         return qs
