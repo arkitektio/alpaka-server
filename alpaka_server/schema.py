@@ -1,6 +1,9 @@
 import strawberry
+from strawberry.schema.config import StrawberryConfig
 from strawberry_django.optimizer import DjangoOptimizerExtension
 from kammer import types as kammer_types
+from kammer.scalars import scalar_map as kammer_scalar_map
+from llm.scalars import scalar_map as llm_scalar_map
 from kammer.graphql import mutations as kammer_mutations
 from kammer.graphql import queries as kammer_queries
 from kammer.graphql import subscriptions as kammer_subscriptions
@@ -82,4 +85,4 @@ class Subscription:
     room = strawberry.subscription(resolver=kammer_subscriptions.room)
 
 
-schema = strawberry.federation.Schema(query=Query, mutation=Mutation, subscription=Subscription, extensions=[DjangoOptimizerExtension, AuthentikateExtension, KoherentExtension], types=[])
+schema = strawberry.federation.Schema(query=Query, mutation=Mutation, subscription=Subscription, extensions=[DjangoOptimizerExtension, AuthentikateExtension, KoherentExtension], types=[], config=StrawberryConfig(scalar_map={**kammer_scalar_map, **llm_scalar_map}))

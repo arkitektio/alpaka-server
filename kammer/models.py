@@ -2,6 +2,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from authentikate.models import Client, User, Organization
+from koherent.fields import ProvenanceField
 
 # Create your models here.
 
@@ -93,6 +94,8 @@ class Message(models.Model):
         related_name="addressed_in",
         help_text="The users that got mentioned in this comment",
     )
+
+    provenance = ProvenanceField()
 
 
 from .signals import *
