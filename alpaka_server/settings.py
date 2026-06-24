@@ -11,13 +11,12 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
-import os
-from omegaconf import OmegaConf
+from .configuration import Settings
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-conf = OmegaConf.load(os.path.join(BASE_DIR, "config.yaml"))
+conf = Settings()
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
@@ -71,9 +70,9 @@ CHANNEL_LAYERS = {
 }
 
 
-OLLAMA_URL = conf.get("ollama_url", "http://ollama:11434")
-CHROMA_DB_HOST = conf.get("chroma_db_host", "chromadb")
-CHROMA_DB_PORT = conf.get("chroma_db_port", 8000)
+OLLAMA_URL = conf.ollama_url
+CHROMA_DB_HOST = conf.chroma_db_host
+CHROMA_DB_PORT = conf.chroma_db_port
 
 CORS_ALLOW_ALL_ORIGINS = True
 
@@ -97,7 +96,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "alpaka_server.urls"
-MY_SCRIPT_NAME = conf.get("force_script_name", "")
+MY_SCRIPT_NAME = conf.django.force_script_name
 
 TEMPLATES = [
     {
@@ -129,12 +128,12 @@ ASGI_APPLICATION = "alpaka_server.asgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": conf.db.engine,
-        "NAME": conf.db.db_name,
-        "USER": conf.db.username,
-        "PASSWORD": conf.db.password,
-        "HOST": conf.db.host,
-        "PORT": conf.db.port,
+        "ENGINE": conf.postgres.engine,
+        "NAME": conf.postgres.db_name,
+        "USER": conf.postgres.username,
+        "PASSWORD": conf.postgres.password,
+        "HOST": conf.postgres.host,
+        "PORT": conf.postgres.port,
     }
 }
 
@@ -157,18 +156,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-AUTHENTIKATE = {
-    "ISSUERS": [
-        *conf.get("authentikate", []),
-        {
-            "iss": "lok",
-            "kid": "lok-key-1",
-            "kind": "rsa",
-            "public_key": conf.lok.get("public_key", None),
-        },
-    ],
-    "STATIC_TOKENS": conf.lok.get("static_tokens", {}),
-}
+AUTHENTIKATE = conf.authentikate.model_dump()
 
 
 # Internationalization
@@ -207,4 +195,4 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
-PROVIDERS = conf.get("providers", [])
+PROVIDERS = conf.providers
