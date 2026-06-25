@@ -1,7 +1,18 @@
 # CHANGELOG
 
 
+## v1.0.1-rc.1 (2026-06-25)
+
+
 ## v1.0.0 (2026-06-25)
+
+
+## v1.0.0-rc.2 (2026-06-25)
+
+### Bug Fixes
+
+- With historical message
+  ([`f54507f`](https://github.com/arkitektio/alpaka-server/commit/f54507f83832143a63ddd36a3a5187d0a053d08e))
 
 
 ## v1.0.0-rc.1 (2026-06-25)
