@@ -1,10 +1,9 @@
 import strawberry
-from typing import Optional, List
+from typing import Annotated, Optional, List
 from strawberry.types import Info
-from llm import models, enums, filters
+from llm import models, enums, filters, scalars as llmscalars
 import strawberry_django
 from strawberry import scalars
-from strawberry import LazyType
 # --- Strawberry types ---
 
 # --- RETURN TYPES ---
@@ -37,13 +36,10 @@ class ChatMessage:
     tool_call_id: Optional[str] = None
     function_call: Optional[FunctionCall] = None
     tool_calls: Optional[List[ToolCall]] = None
-    
-    
-    
-    
+
+
 @strawberry.type
 class ThinkingBlock:
-    
     type: enums.ThinkingBlockType
     thinking: str
     signature: Optional[str] = None
@@ -84,7 +80,14 @@ class ChatResponse:
     usage: Optional[Usage]
 
 
-@strawberry_django.type(models.LLMModel, description="A LLM model to chage with", filters=filters.LLMModelFilter, pagination=True)
+@strawberry.type
+class ImageReponse:
+    """A chat response from a large language model"""
+
+    image: llmscalars.Base64EncodedString
+
+
+@strawberry_django.type(models.LLMModel, description="A LLM model to chage with", filters=filters.LLMModelFilter, ordering=filters.LLMModelOrder, pagination=True)
 class LLMModel:
     """A large language model"""
 
@@ -92,19 +95,15 @@ class LLMModel:
     model_id: str
     label: str
     provider: "Provider"
-    
-    features: List[enums.FeatureType] = strawberry_django.field(
-        description="The features supported by the model"
-    )
-    embedder_for: List[LazyType["ChromaCollection", "vector.types"]] = strawberry_django.field(
-        description="The collections that can be embedded with this model"
-    )
-    llm_string: str = strawberry_django.field(
-        description="The string to use for the LLM model"
-    )
+
+    features: List[enums.FeatureType] = strawberry_django.field(description="The features supported by the model")
+    embedder_for: List[Annotated["ChromaCollection", strawberry.lazy("vector.types")]] = strawberry_django.field(description="The collections that can be embedded with this model")
+    llm_string: str = strawberry_django.field(description="The string to use for the LLM model")
+    input_modalities: list[enums.InputModality] = strawberry_django.field(description="The input modalities")
+    output_modalities: list[enums.InputModality] = strawberry_django.field(description="The input modalities")
 
 
-@strawberry_django.type(models.Provider, description="A provider of LLMs", filters=filters.ProviderFilter, pagination=True)
+@strawberry_django.type(models.Provider, description="A provider of LLMs", filters=filters.ProviderFilter, ordering=filters.ProviderOrder, pagination=True)
 class Provider:
     """A provider of LLMs"""
 
@@ -118,3 +117,10 @@ class Provider:
         description="The kind of the provider",
         default=enums.ProviderKind.UNKNOWN,
     )
+
+
+@strawberry_django.type(models.DefaultUse, description="A default use for a model", filters=filters.DefaultUseFilter, ordering=filters.DefaultUseOrder, pagination=True)
+class DefaultUse:
+    id: strawberry.ID
+    model: "LLMModel"
+    kind: str

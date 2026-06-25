@@ -2,6 +2,8 @@
 from django.db import models
 from llm.enums import FeatureType, ProviderKind
 import litellm
+from authentikate.models import Organization, User
+
 
 class Provider(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -9,18 +11,17 @@ class Provider(models.Model):
     api_key = models.TextField(blank=True, null=True)
     api_base = models.URLField(blank=True, null=True)
     additional_config = models.JSONField(blank=True, null=True)
-    creator = models.ForeignKey(
-        "authentikate.User", on_delete=models.CASCADE, null=True, blank=True
-    )
+    creator = models.ForeignKey("authentikate.User", on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    kind = models.CharField(
-        max_length=50, choices=[(kind.value, kind.name) for kind in ProviderKind], default=ProviderKind.UNKNOWN.value
+    kind = models.CharField(max_length=50, choices=[(kind.value, kind.name) for kind in ProviderKind], default=ProviderKind.UNKNOWN.value)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this provider belongs to",
     )
-    
+
     class Meta:
         unique_together = ("name", "api_key")
-        
-    
 
 
 class LLMModel(models.Model):
@@ -28,26 +29,44 @@ class LLMModel(models.Model):
     model_id = models.CharField(max_length=255)
     label = models.CharField(max_length=255)
     features = models.JSONField(default=list, blank=True, null=True)
-    
-    
+    pinned_by = models.ManyToManyField(User, related_name="pinned_models")
+    input_modalities = models.JSONField(default=list, blank=True, null=True)
+    output_modalities = models.JSONField(default=list, blank=True, null=True)
+
     @property
     def is_available(self):
         return True
-    
-    
+
     @property
     def llm_string(self):
         return f"{self.provider.name}/{self.model_id}"
-    
-    
+
     def get_features(self):
         return self.features or []
-    
+
     def has_feature(self, feature: FeatureType):
         return feature in self.get_features()
-    
+
     @property
     def provider_kind(self) -> ProviderKind:
         """Get the provider kind from the related provider"""
         return self.provider.kind
-   
+
+
+class DefaultUse(models.Model):
+    kind = models.CharField(max_length=600)
+    model = models.ForeignKey(LLMModel, on_delete=models.CASCADE)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this provider belongs to",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="The organization this provider belongs to",
+    )
+
+    class Meta:
+        unique_together = ("kind", "organization", "user")

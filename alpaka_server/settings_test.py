@@ -1,18 +1,29 @@
 from .settings import *  # noqa
-from .settings import DATABASES, AUTHENTIKATE
+from .settings import AUTHENTIKATE, DATABASES
 import logging
 
+# Real Postgres from tests/integration/docker-compose.yaml (spun up by the
+# `backend_stack` session fixture). A real DB is required because the harness
+# runs sync ORM code from async tests and disables migrations (below).
 DATABASES["default"] = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": ":memory:",
-    "OPTIONS": {
-        "timeout": 30,
-    },
-    "TEST": {
-        "NAME": ":memory:",
+    "ENGINE": "django.db.backends.postgresql",
+    "NAME": "testdb",
+    "USER": "test",
+    "PASSWORD": "test",
+    "HOST": "localhost",
+    "PORT": "5555",
+}
+AUTHENTIKATE = {
+    **AUTHENTIKATE,
+    "static_tokens": {
+        "test": {"sub": "1"},
+        # A non-privileged user in a different organization, for cross-tenant
+        # scoping/permission tests. roles must be set explicitly: StaticToken
+        # defaults roles to ["admin"], which would let this user do anything and
+        # defeat the cross-org denial tests.
+        "othertest": {"sub": "9", "active_org": "other_org", "roles": []},
     },
 }
-AUTHENTIKATE = {**AUTHENTIKATE, "STATIC_TOKENS": {"test": {"sub": "1"}}}
 
 
 # Disable migrations for faster tests
@@ -28,8 +39,7 @@ class DisableMigrations:
         return None
 
 
-# For faster test execution, you can uncomment this:
-# MIGRATION_MODULES = DisableMigrations()
+MIGRATION_MODULES = DisableMigrations()
 
 # Disable logging during tests to reduce noise
 logging.disable(logging.CRITICAL)

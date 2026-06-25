@@ -26,17 +26,15 @@ async def room(
 
     agent, _ = await models.Agent.objects.aget_or_create(
         user=info.context.request.user,
-        app=info.context.request.app,
+        client=info.context.request.client,
         room_id=room,
         name=agent_id,
     )
 
-    async for message in message_channel(info.context, ["room_" + str(room)]):
+    async for message in message_channel.listen(info.context, ["room_" + str(room)]):
         print("Received message", message)
         if message.message:
-            message_model = await models.Message.objects.prefetch_related("agent").aget(
-                id=message
-            )
+            message_model = await models.Message.objects.prefetch_related("agent").aget(id=message.message)
             if filter_own and message_model.agent == agent:
                 continue
 

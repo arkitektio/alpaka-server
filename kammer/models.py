@@ -1,7 +1,8 @@
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from authentikate.models import Client, User
+from authentikate.models import Client, User, Organization
+from koherent.fields import ProvenanceField
 
 # Create your models here.
 
@@ -11,23 +12,26 @@ class Structure(models.Model):
         max_length=1000,
         help_text="The identifier of the object. Consult the documentation for the format",
     )
-    object = models.PositiveIntegerField(
-        help_text="The object id of the object, on its associated service"
-    )
+    object = models.PositiveIntegerField(help_text="The object id of the object, on its associated service")
 
 
 class Room(models.Model):
     title = models.CharField(max_length=1000, help_text="The Title of the Room")
     description = models.CharField(max_length=10000, null=True)
-    creator = models.ForeignKey(
-        User, on_delete=models.CASCADE, null=True, blank=True
-    )
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     pinned_by = models.ManyToManyField(
         User,
         related_name="pinned_rooms",
         blank=True,
         help_text="The users that have pinned the workspace",
     )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        help_text="The organization this room belongs to",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this room got created")
+    contextual_structures = models.ManyToManyField(Structure)
 
     @property
     def messages(self):
@@ -50,11 +54,12 @@ class Agent(models.Model):
     )
 
 
-
 class Message(models.Model):
     """
     Message represent the message of an agent on a room
     """
+
+    room = models.ForeignKey(Room, on_delete=models.CASCADE)
 
     attached_structures = models.ManyToManyField(Structure)
     targets = models.ManyToManyField(
@@ -70,9 +75,7 @@ class Message(models.Model):
     )
     is_streaming = models.BooleanField(default=False)
     text = models.TextField(help_text="A clear text representation of the rich comment")
-    created_at = models.DateTimeField(
-        auto_now_add=True, help_text="The time this comment got created"
-    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this comment got created")
     is_reply_to = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -91,9 +94,8 @@ class Message(models.Model):
         related_name="addressed_in",
         help_text="The users that got mentioned in this comment",
     )
-    
 
-
+    provenance = ProvenanceField()
 
 
 from .signals import *

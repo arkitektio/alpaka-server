@@ -18,6 +18,7 @@ from kammer import inputs
 class CreateRoomInput:
     description: str | None = None
     title: str | None = None
+    talking_about: List[vector_inputs.StructureInput] | None = None
 
 
 def create_room(info: Info, input: CreateRoomInput) -> types.Room:
@@ -26,7 +27,13 @@ def create_room(info: Info, input: CreateRoomInput) -> types.Room:
     exp = models.Room.objects.create(
         title=input.title or "Untitled",
         description=input.description or "No description",
+        creator=creator,
+        organization=info.context.request.organization,
     )
+    if input.talking_about:
+        for structure in input.talking_about:
+            structure, _ = models.Structure.objects.get_or_create(object=structure.object, identifier=structure.identifier)
+            exp.contextual_structures.add(structure)
 
     return exp
 
@@ -62,7 +69,7 @@ def send(info: Info, input: SendMessageInput) -> types.Message:
         name=input.agent_id,
     )
 
-    message = models.Message.objects.create(agent=agent, text=input.text)
+    message = models.Message.objects.create(agent=agent, room_id=input.room, text=input.text)
     if input.attach_structures:
         for structure in input.attach_structures:
             structure, _ = models.Structure.objects.get_or_create(object=structure.object, identifier=structure.identifier)

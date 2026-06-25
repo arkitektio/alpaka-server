@@ -7,8 +7,9 @@ from llm import enums
 @strawberry.input(description="A large language model to change with")
 class ProviderInput:
     """A large language model provider"""
+
     description: Optional[str] = None
-    name: str
+    name: Optional[str] = None
     kind: enums.ProviderKind
     api_key: Optional[str] = None
     api_base: Optional[str] = None
@@ -68,7 +69,19 @@ class ChatMessageInput:
 class ChatInput:
     """A chat message input for a large language model"""
 
-    model: strawberry.ID
+    model: strawberry.ID | None = None
     messages: List[ChatMessageInput]
     tools: Optional[List[ToolInput]] = None
     temperature: Optional[float] = None
+
+
+@strawberry.input(description="The image")
+class ImageInput:
+    model: strawberry.ID | None = None
+    description: str
+
+
+@strawberry.input(description="The input for using a model for a specific task")
+class UseModelForInput:
+    model: strawberry.ID
+    kind: str

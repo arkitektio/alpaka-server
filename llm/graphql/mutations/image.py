@@ -1,8 +1,9 @@
 import strawberry
 from typing import Optional, List
-from llm.inputs import ChatMessageInput, ToolInput, ChatInput
+from llm.inputs import ChatMessageInput, ToolInput, ChatInput, ImageInput
 from llm.types import (
     ChatResponse,
+    ImageReponse,
 )
 import litellm
 from kante.types import Info
@@ -99,14 +100,11 @@ def serialize_tools(tools: Optional[List[ToolInput]]) -> Optional[List[dict]]:
     ]
 
 
-def chat(info: Info, input: ChatInput) -> ChatResponse:
+def generate_image(info: Info, input: ImageInput) -> ImageReponse:
     """Send a chat message to the LLM and get a response."""
 
-    serialized_messages = serialize_messages(input.messages)
-    serialized_tools = serialize_tools(input.tools)
-
     # Check if the model is available
-    chat_model = models.LLMModel.objects.get(id=input.model) if input.model else manager.get_default_llm_model_for_user(info.context.request.user, info.context.request.organization, "text_generation")
+    chat_model = models.LLMModel.objects.get(id=input.model) if input.model else manager.get_default_llm_model_for_user(info.context.request.user, info.context.request.organization, "image_generation")
 
     # type: ignore
     if not chat_model:
@@ -115,14 +113,60 @@ def chat(info: Info, input: ChatInput) -> ChatResponse:
     if not chat_model.is_available:
         raise Exception("Model is not available")
 
+    if chat_model.provider.kind == enums.ProviderKind.OPENROUTER:
+        import json
+        import urllib.request
+        import urllib.error
+        import base64
+
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {chat_model.provider.api_key}",
+            "Content-Type": "application/json",
+        }
+        data = {
+            "model": chat_model.model_id,
+            "messages": [{"role": "user", "content": f"Create a picture o the described image. DO NOT ASK for another input just created the image, go for a cartoon like style: {input.description}"}],
+            "modalities": ["image", "text"],
+            "image_config": {"aspect_ratio": "16:9"},
+        }
+
+        req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers)
+
+        print("Starting to generate")
+        try:
+            with urllib.request.urlopen(req) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                print("Result", result)
+                if result.get("choices"):
+                    message = result["choices"][0]["message"]
+
+                    if message.get("images"):
+                        image_url = message["images"][0]["image_url"]["url"]
+
+                        if image_url.startswith("data:"):
+                            return ImageReponse(image=image_url.split(",")[-1])
+                        else:
+                            with urllib.request.urlopen(image_url) as img_response:
+                                img_data = img_response.read()
+                                b64_img = base64.b64encode(img_data).decode("utf-8")
+                                return ImageReponse(image=b64_img)
+
+                    raise Exception("No images returned in response")
+                else:
+                    raise Exception("No choices in response")
+
+        except urllib.error.HTTPError as e:
+            raise Exception(f"OpenRouter API Error: {e.read().decode('utf-8')}")
+
     # Disallow streaming in this endpoint
-    response = litellm.completion(
+    response = litellm.image_generation(
         model=chat_model.llm_string,
-        messages=serialized_messages,
-        tools=serialized_tools,
+        prompt=input.description,
         api_base=chat_model.provider.api_base,
         api_key=chat_model.provider.api_key,
-        stream=False,
     )
 
-    return to_chat_response(response)
+    answer = response.data[0]["b64_json"]
+
+    return ImageReponse(image=answer)
