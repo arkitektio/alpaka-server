@@ -11,8 +11,6 @@ python manage.py ensureadmin
 echo "=> Ensuring Provider Partners..."
 python manage.py ensurepartners
 
-echo "=> Collecting Static.."
-python manage.py collectstatic --noinput
 
 # Start the first process
 echo "=> Starting Server"

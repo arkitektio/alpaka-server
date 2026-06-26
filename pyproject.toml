@@ -30,6 +30,7 @@ dependencies = [
     "ollama>=0.4.8",
     "chromadb>=1.0.8",
     "django-health-check>=3.20.0",
+    "whitenoise>=6.6",
 ]
 
 [dependency-groups]
