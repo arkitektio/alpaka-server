@@ -1,12 +1,18 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.2 (2026-06-26)
+
+
 ## v2.0.0-rc.1 (2026-06-26)
 
 ### Features
 
 - With config + providers + optimized containers
   ([`5c79c72`](https://github.com/arkitektio/alpaka-server/commit/5c79c72a11ffd4f30b35720c393384bf6af7e0ee))
+
+- With whitenoise
+  ([`fb4447d`](https://github.com/arkitektio/alpaka-server/commit/fb4447d815b072ebb91c7dc90f9bc27a4591a223))
 
 
 ## v1.0.1-rc.1 (2026-06-25)
