@@ -4,4 +4,5 @@ from llm import models
 
 # Register your models here.
 admin.site.register(models.Provider)
+admin.site.register(models.ProviderPartner)
 admin.site.register(models.LLMModel)

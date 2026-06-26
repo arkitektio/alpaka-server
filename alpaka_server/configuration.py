@@ -67,6 +67,46 @@ class RedisSettings(BaseModel):
     port: int = Field(default=6379, description="Redis port.")
 
 
+class ProviderPartnerFilterModel(BaseModel):
+    """Filter conditions deciding which users/organizations a partner applies to.
+
+    All conditions are optional. When several are set, ALL must be satisfied
+    (AND logic). Mirrors lok's ``FilterConfigModel``.
+    """
+
+    email_domain_equals: Optional[List[str]] = Field(default=None, description="User email domain must exactly match one of these.")
+    email_domain_ends_with: Optional[List[str]] = Field(default=None, description="User email domain must end with one of these suffixes.")
+    username_equals: Optional[List[str]] = Field(default=None, description="Username must exactly match one of these.")
+    username_contains: Optional[List[str]] = Field(default=None, description="Username must contain one of these substrings.")
+
+
+class ProviderPartnerModel(BaseModel):
+    """A pre-declared LLM provider that can be auto-provisioned for organizations.
+
+    Mirrors lok's ``KommunityPartnerModel``. Partners flagged ``auto_configure``
+    are materialized into a real per-organization ``llm.Provider`` whenever an
+    organization is created.
+    """
+
+    name: str = Field(description="Human-readable provider name (also the generated Provider's name).")
+    identifier: str = Field(description="Unique identifier for the partner within the system.")
+    kind: str = Field(default="unknown", description="The provider kind (e.g. 'openai', 'openrouter', 'ollama').")
+    description: Optional[str] = Field(default=None, description="Long description.")
+    short_description: Optional[str] = Field(default=None, description="Short description.")
+    logo_url: Optional[str] = Field(default=None, description="URL of the partner's logo.")
+    api_key: Optional[str] = Field(default=None, description="API key handed to the provisioned provider.")
+    api_base: Optional[str] = Field(default=None, description="API base URL for the provisioned provider.")
+    additional_config: Optional[Dict[str, Any]] = Field(default=None, description="Extra provider configuration passed through verbatim.")
+    auto_configure: bool = Field(default=False, description="If true, a Provider is auto-created for every new organization.")
+    filter_config: Optional[ProviderPartnerFilterModel] = Field(default=None, description="Conditions narrowing which users/orgs the partner applies to.")
+
+
+class ProviderPartnerConfigModel(BaseModel):
+    """Wrapper model validating the list of provider partners from config."""
+
+    partners: List[ProviderPartnerModel] = Field(default_factory=list)
+
+
 class Settings(BaseSettings):
     """Top-level, validated configuration for the alpaka service."""
 
@@ -76,7 +116,7 @@ class Settings(BaseSettings):
     postgres: PostgresSettings = Field(description="PostgreSQL connection.")
     redis: RedisSettings = Field(description="Redis connection.")
     authentikate: AuthentikateSettings = Field(description="Token-verification config (authentikate).")
-    providers: List[Dict[str, Any]] = Field(default_factory=list, description="LLM provider credentials/config (e.g. OpenRouter API keys).")
+    provider_partners: List[ProviderPartnerModel] = Field(default_factory=list, description="Pre-declared LLM providers; those with auto_configure are provisioned for every new organization.")
     ollama_url: str = Field(default="http://ollama:11434", description="Base URL of the Ollama server.")
     chroma_db_host: str = Field(default="chromadb", description="ChromaDB vector store host.")
     chroma_db_port: int = Field(default=8000, description="ChromaDB vector store port.")

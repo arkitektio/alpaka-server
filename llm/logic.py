@@ -1,8 +1,43 @@
+import logging
+
 import aiohttp
 import litellm
-from .models import Provider, LLMModel
+from .models import Provider, ProviderPartner, LLMModel
 from .enums import ProviderKind
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+
+def auto_configure_provider_partners(organization) -> list[str]:
+    """Provision a :class:`Provider` for ``organization`` from every auto-config partner.
+
+    Mirrors lok's ``auto_configure_kommunity_partners``. Runs on organization
+    creation (see ``llm.signals``). Kept pure sync ORM with **no network calls**:
+    it executes inside the auth request path (possibly within an async ORM context),
+    so model listing is refreshed separately, not here.
+    """
+    applied: list[str] = []
+
+    for partner in ProviderPartner.objects.filter(auto_configure=True):
+        # alpaka's Organization has no owner, so there is no user to filter on here;
+        # filter_config is honoured by Provider creation paths that do have a user.
+        Provider.objects.update_or_create(
+            organization=organization,
+            name=partner.name,
+            defaults=dict(
+                kind=partner.kind,
+                api_key=partner.api_key,
+                api_base=partner.api_base,
+                additional_config=partner.additional_config,
+                description=partner.description or "Auto-provisioned from partner",
+                partner=partner,
+            ),
+        )
+        logger.info("Auto-configured provider '%s' for organization '%s'", partner.identifier, organization)
+        applied.append(partner.identifier)
+
+    return applied
 
 
 def detect_features(model_id: str) -> list[str]:
