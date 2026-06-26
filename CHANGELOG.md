@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.3 (2026-06-26)
+
+### Features
+
+- Removal of stale migrations
+  ([`3a48a6a`](https://github.com/arkitektio/alpaka-server/commit/3a48a6a14c969d8678bbdd16209d8f41d0c5e30b))
+
+
 ## v2.0.0-rc.2 (2026-06-26)
 
 
