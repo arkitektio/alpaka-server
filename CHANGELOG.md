@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.4 (2026-06-29)
+
+### Bug Fixes
+
+- Auth update
+  ([`7a6f993`](https://github.com/arkitektio/alpaka-server/commit/7a6f993fd7c9332bc5a51cad3e59d4107202d6e8))
+
+
 ## v2.0.0-rc.3 (2026-06-26)
 
 ### Features
