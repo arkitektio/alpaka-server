@@ -11,6 +11,7 @@ from django.conf import settings
 
 from llm.types import ChatResponse, Choice, ChatMessage, Usage, FunctionCall, ToolCall
 from llm import models, enums, filters, inputs, manager
+from llm.errors import wrap_llm_errors
 from typing import List
 
 
@@ -160,12 +161,13 @@ def generate_image(info: Info, input: ImageInput) -> ImageReponse:
             raise Exception(f"OpenRouter API Error: {e.read().decode('utf-8')}")
 
     # Disallow streaming in this endpoint
-    response = litellm.image_generation(
-        model=chat_model.llm_string,
-        prompt=input.description,
-        api_base=chat_model.provider.api_base,
-        api_key=chat_model.provider.api_key,
-    )
+    with wrap_llm_errors(chat_model):
+        response = litellm.image_generation(
+            model=chat_model.llm_string,
+            prompt=input.description,
+            api_base=chat_model.provider.api_base,
+            api_key=chat_model.provider.api_key,
+        )
 
     answer = response.data[0]["b64_json"]
 

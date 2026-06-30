@@ -87,6 +87,32 @@ def create_openai_error_response(
     return JsonResponse(error_body, status=status)
 
 
+def litellm_error_response(e: Exception, *, model: Optional[llm_models.LLMModel] = None) -> JsonResponse:
+    """Map a litellm exception to an OpenAI-compatible error response.
+
+    Surfaces the upstream provider and HTTP status where available so a failing
+    request reports *which* provider rejected it and *why*, instead of a blanket
+    ``Internal server error``. Mirrors ``llm.errors.wrap_llm_errors`` (used by the
+    GraphQL mutations) for the REST endpoints. The specific subclasses are checked
+    before ``APIError`` because they all inherit from it.
+    """
+    ctx = f" for model '{model.llm_string}'" if model is not None else ""
+    if isinstance(e, litellm.exceptions.AuthenticationError):
+        return create_openai_error_response(f"Provider authentication failed{ctx}: {e}", error_type="authentication_error", status=401)
+    if isinstance(e, litellm.exceptions.RateLimitError):
+        return create_openai_error_response(f"Rate limit exceeded{ctx}: {e}", error_type="rate_limit_error", status=429)
+    if isinstance(e, litellm.exceptions.InvalidRequestError):
+        return create_openai_error_response(f"{e}", error_type="invalid_request_error", status=400)
+    if isinstance(e, litellm.exceptions.APIError):
+        status = getattr(e, "status_code", None)
+        upstream = getattr(e, "llm_provider", None) or "provider"
+        msg = getattr(e, "message", None) or str(e)
+        out_status = status if isinstance(status, int) and 400 <= status < 600 else 502
+        return create_openai_error_response(f"Upstream {upstream} returned {status}{ctx}: {msg}", error_type="api_error", status=out_status)
+    logger.exception("Unexpected LLM error")
+    return create_openai_error_response(f"Internal server error{ctx}: {e}", error_type="api_error", status=500)
+
+
 class DefaultModelNotConfiguredError(Exception):
     """Raised when a default model is requested but not configured."""
 
@@ -364,15 +390,8 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         else:
             response = await litellm.acompletion(**litellm_kwargs)
             return JsonResponse(response.model_dump())
-    except litellm.exceptions.AuthenticationError as e:
-        return create_openai_error_response(f"Provider authentication failed: {str(e)}", error_type="authentication_error", status=401)
-    except litellm.exceptions.RateLimitError as e:
-        return create_openai_error_response(f"Rate limit exceeded: {str(e)}", error_type="rate_limit_error", status=429)
-    except litellm.exceptions.InvalidRequestError as e:
-        return create_openai_error_response(str(e), error_type="invalid_request_error", status=400)
     except Exception as e:
-        logger.exception("Error in chat completion")
-        return create_openai_error_response(f"Internal server error: {str(e)}", error_type="api_error", status=500)
+        return litellm_error_response(e, model=model)
 
 
 async def _handle_streaming_chat(litellm_kwargs: dict) -> StreamingHttpResponse:
@@ -570,8 +589,7 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         )
         return JsonResponse(response.model_dump())
     except Exception as e:
-        logger.exception("Error in embeddings")
-        return create_openai_error_response(f"Internal server error: {str(e)}", error_type="api_error", status=500)
+        return litellm_error_response(e, model=model)
 
 
 # ============================================================================

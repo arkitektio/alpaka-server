@@ -10,6 +10,7 @@ from django.conf import settings
 
 from llm.types import ChatResponse, Choice, ChatMessage, Usage, FunctionCall, ToolCall
 from llm import models, enums, filters, inputs, manager
+from llm.errors import wrap_llm_errors
 from typing import List
 
 
@@ -116,13 +117,14 @@ def chat(info: Info, input: ChatInput) -> ChatResponse:
         raise Exception("Model is not available")
 
     # Disallow streaming in this endpoint
-    response = litellm.completion(
-        model=chat_model.llm_string,
-        messages=serialized_messages,
-        tools=serialized_tools,
-        api_base=chat_model.provider.api_base,
-        api_key=chat_model.provider.api_key,
-        stream=False,
-    )
+    with wrap_llm_errors(chat_model):
+        response = litellm.completion(
+            model=chat_model.llm_string,
+            messages=serialized_messages,
+            tools=serialized_tools,
+            api_base=chat_model.provider.api_base,
+            api_key=chat_model.provider.api_key,
+            stream=False,
+        )
 
     return to_chat_response(response)
