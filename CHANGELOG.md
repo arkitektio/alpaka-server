@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.5 (2026-06-30)
+
+### Bug Fixes
+
+- Better errors for agents
+  ([`3a0135c`](https://github.com/arkitektio/alpaka-server/commit/3a0135c803744b9f54469da41527109846969226))
+
+
 ## v2.0.0-rc.4 (2026-06-29)
 
 ### Bug Fixes
