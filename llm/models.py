@@ -1,4 +1,5 @@
 # api/models.py
+from alpaka_server.scoping import OrganizationScopedManager
 from django.db import models
 from llm.enums import FeatureType, ProviderKind
 import litellm
@@ -98,7 +99,12 @@ class Provider(models.Model):
         help_text="The partner this provider was auto-provisioned from, if any.",
     )
 
+    objects = OrganizationScopedManager()
+    all_objects = models.Manager()
+
     class Meta:
+        base_manager_name = "all_objects"
+        default_manager_name = "all_objects"
         unique_together = ("organization", "name")
 
 
@@ -110,6 +116,14 @@ class LLMModel(models.Model):
     pinned_by = models.ManyToManyField(User, related_name="pinned_models")
     input_modalities = models.JSONField(default=list, blank=True, null=True)
     output_modalities = models.JSONField(default=list, blank=True, null=True)
+
+    # LLMModel reaches its organization through its provider.
+    objects = OrganizationScopedManager(field="provider__organization")
+    all_objects = models.Manager()
+
+    class Meta:
+        base_manager_name = "all_objects"
+        default_manager_name = "all_objects"
 
     @property
     def is_available(self):
@@ -146,5 +160,10 @@ class DefaultUse(models.Model):
         help_text="The organization this provider belongs to",
     )
 
+    objects = OrganizationScopedManager()
+    all_objects = models.Manager()
+
     class Meta:
+        base_manager_name = "all_objects"
+        default_manager_name = "all_objects"
         unique_together = ("kind", "organization", "user")

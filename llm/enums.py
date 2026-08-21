@@ -30,21 +30,43 @@ class ThinkingBlockType(str, Enum):
     THINKING = "thinking"
 
 
-@strawberry.enum(description="The type of the thinking block")
+@strawberry.enum(description="A capability a model supports")
 class FeatureType(str, Enum):
-    """A supported feature type for a large language model"""
+    """A supported feature type for a large language model.
+
+    These are exactly the values ``llm.logic.detect_features`` writes onto
+    ``LLMModel.features``; a value missing from here breaks serialization of the
+    whole field, which is what ``"vision"`` used to do.
+    """
 
     EMBEDDING = "embedding"
-    CHATTING = "chatting"
     CHAT = "chat"
+    VISION = "vision"
 
 
-@strawberry.enum(description="Modalities")
-class InputModality(str, Enum):
+@strawberry.enum(description="A modality a model can read or emit")
+class Modality(str, Enum):
+    """A kind of content a model accepts as input or produces as output."""
+
     IMAGE = "image"
     TEXT = "text"
     AUDIO = "audio"
     VIDEO = "video"
+
+
+
+@strawberry.enum(description="A task a model can be made the default for")
+class DefaultKind(str, Enum):
+    """The task a default model is registered against.
+
+    These were free-form strings duplicated across the manager, the REST views
+    and both chat mutations; naming them here makes the valid set discoverable
+    in the schema.
+    """
+
+    TEXT_GENERATION = "text_generation"
+    EMBEDDING = "embedding"
+    IMAGE_GENERATION = "image_generation"
 
 
 @strawberry.enum(description="The kind of LLM provider")

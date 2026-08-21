@@ -65,14 +65,26 @@ class ChatMessageInput:
     tool_calls: Optional[List[ToolCallInput]] = None
 
 
-@strawberry.input(description="A chat message input")
+@strawberry.input(description="A chat completion request")
 class ChatInput:
-    """A chat message input for a large language model"""
+    """A chat completion request for a large language model.
 
-    model: strawberry.ID | None = None
+    The optional generation parameters mirror those the OpenAI-compatible REST
+    endpoint accepts, so the two front doors take the same request.
+    """
+
     messages: List[ChatMessageInput]
+    model: strawberry.ID | None = None
     tools: Optional[List[ToolInput]] = None
+    tool_choice: Optional[scalars.JSON] = None
     temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    stop: Optional[List[str]] = None
+    n: Optional[int] = None
+    response_format: Optional[scalars.JSON] = None
 
 
 @strawberry.input(description="The image")
@@ -83,5 +95,7 @@ class ImageInput:
 
 @strawberry.input(description="The input for using a model for a specific task")
 class UseModelForInput:
+    """The model to register, and the task to register it against."""
+
     model: strawberry.ID
-    kind: str
+    kind: enums.DefaultKind

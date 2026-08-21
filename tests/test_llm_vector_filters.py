@@ -14,17 +14,17 @@ from vector import models as vector_models
 def seed():
     org = Organization.objects.get(slug="static_org")
 
-    openai = llm_models.Provider.objects.create(name="OpenAI", organization=org)
-    ollama = llm_models.Provider.objects.create(name="Ollama", organization=org)
+    openai = llm_models.Provider.objects.for_write().create(name="OpenAI", organization=org)
+    ollama = llm_models.Provider.objects.for_write().create(name="Ollama", organization=org)
 
-    gpt = llm_models.LLMModel.objects.create(
+    gpt = llm_models.LLMModel.objects.for_write().create(
         provider=openai,
         model_id="gpt-4",
         label="GPT-4",
         input_modalities=["text", "image"],
         output_modalities=["text"],
     )
-    whisper = llm_models.LLMModel.objects.create(
+    whisper = llm_models.LLMModel.objects.for_write().create(
         provider=openai,
         model_id="whisper-1",
         label="Whisper",
@@ -32,8 +32,8 @@ def seed():
         output_modalities=["text"],
     )
 
-    collection = vector_models.ChromaCollection.objects.create(name="recipes", embedder=gpt, organization=org)
-    vector_models.ChromaCollection.objects.create(name="weather", embedder=gpt, organization=org)
+    collection = vector_models.ChromaCollection.objects.for_write().create(name="recipes", embedder=gpt, organization=org)
+    vector_models.ChromaCollection.objects.for_write().create(name="weather", embedder=gpt, organization=org)
 
     return {
         "org": org,

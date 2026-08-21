@@ -1,66 +1,41 @@
-import strawberry
-from typing import Optional, List
+"""Similarity search over a collection."""
+
+from typing import List
+
 from kante.types import Info
-from django.conf import settings
-from vector import models, types, gateway, inputs
-from strawberry import scalars
-from litellm import aembedding
 
-async def documents(
-    info: Info,
-    collection: strawberry.ID,
-    query_texts: Optional[List[str]] = None,
-    n_results: Optional[int] = 3,
-    where: Optional[scalars.JSON] = None,
-) -> List[types.Document]:
-    # Get DB collection
-    db_coll = await models.ChromaCollection.objects.prefetch_related("embedder__provider").aget(id=str(collection))
-    
-    
+from vector import gateway, inputs, models, types
+from vector.embedding import aembed_texts
 
-    response = await aembedding(
-        db_coll.embedder.llm_string,
-        query_texts,
-        api_base=settings.OLLAMA_URL,
-        stream=False,
-    )
 
-    # Get vector DB client and collection
-    client = await gateway.aget_client()
-    real_collection = await client.get_collection(name=db_coll.name)
-
-    # ChromaDB expects at least one query text
-    if not query_texts:
+async def documents(info: Info, input: inputs.QueryInput) -> List[types.Document]:
+    """Return the documents in a collection most similar to the query texts."""
+    if not input.query_texts:
         raise ValueError("At least one query text must be provided.")
-    
-   
-    query_embeddings = [x["embedding"] for x in response.data]  
-    
-    print("THEE COUNT", await real_collection.count())
+
+    db_collection = await models.ChromaCollection.objects.for_organization(info.context.request.organization).select_related("embedder__provider").aget(id=str(input.collection))
+
+    query_embeddings = await aembed_texts(db_collection.embedder, input.query_texts)
+
+    client = await gateway.aget_client()
+    real_collection = await client.get_collection(name=db_collection.chroma_name)
 
     results = await real_collection.query(
         query_embeddings=query_embeddings,
-        n_results=n_results or 3,
-        where=where
+        n_results=input.n_results,
+        where=input.where,
     )
-    
-    print(f"Results: {results}")
 
-    # Ensure we have results to unpack
     if not results["ids"] or not results["documents"]:
         return []
 
+    # Chroma nests one result list per query text, and the optional includes are
+    # absent rather than empty when they were not requested.
+    count = len(results["ids"][0])
+    metadatas = results.get("metadatas") or [[None] * count]
+    distances = results.get("distances") or [[None] * count]
+
     return [
-        types.Document(
-            id=id_,
-            content=doc,
-            _metadata=meta,
-            distance=dist,
-        )
-        for id_, doc, meta, dist in zip(
-            results["ids"][0],
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0],
-        )
+        types.Document(id=id_, content=doc, _metadata=meta or {}, distance=dist)
+        for id_, doc, meta, dist in zip(results["ids"][0], results["documents"][0], metadatas[0], distances[0])
     ]

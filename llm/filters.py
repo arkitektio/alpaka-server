@@ -24,12 +24,25 @@ class LLMModelFilter:
         return Q(**{f"{prefix}label__icontains": value})
 
     @strawberry_django.filter_field
-    def input_modalities(self, value: list[enums.InputModality], prefix: str) -> Q:
+    def input_modalities(self, value: list[enums.Modality], prefix: str) -> Q:
         return Q(**{f"{prefix}input_modalities__contains": value})
 
     @strawberry_django.filter_field
-    def output_modalities(self, value: list[enums.InputModality], prefix: str) -> Q:
+    def output_modalities(self, value: list[enums.Modality], prefix: str) -> Q:
         return Q(**{f"{prefix}output_modalities__contains": value})
+
+    @strawberry_django.filter_field
+    def features(self, value: list[enums.FeatureType], prefix: str) -> Q:
+        """Match models supporting every one of the named capabilities."""
+        q = Q()
+        for feature in value:
+            q &= Q(**{f"{prefix}features__contains": [feature.value]})
+        return q
+
+    @strawberry_django.filter_field
+    def provider(self, value: strawberry.ID, prefix: str) -> Q:
+        """Restrict to the models offered by one provider."""
+        return Q(**{f"{prefix}provider_id": value})
 
 
 @strawberry_django.order_type(models.Provider)

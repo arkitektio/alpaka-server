@@ -24,7 +24,7 @@ def test_auto_configure_partner_provisions_provider_on_org_creation():
 
     org = Organization.objects.create(slug="partner_test_org")
 
-    provider = llm_models.Provider.objects.get(organization=org, name="Shared OpenRouter")
+    provider = llm_models.Provider.objects.for_organization(org).get(name="Shared OpenRouter")
     assert provider.partner.identifier == "shared-openrouter"
     assert provider.kind == "openrouter"
     assert provider.api_key == "sk-test"
@@ -41,7 +41,7 @@ def test_non_auto_partner_is_not_provisioned():
 
     org = Organization.objects.create(slug="manual_test_org")
 
-    assert not llm_models.Provider.objects.filter(organization=org).exists()
+    assert not llm_models.Provider.objects.for_organization(org).exists()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -57,7 +57,7 @@ def test_auto_configure_is_idempotent():
     # Re-running must not create a duplicate (matches per-org (organization, name) uniqueness).
     auto_configure_provider_partners(org)
 
-    assert llm_models.Provider.objects.filter(organization=org, partner=partner).count() == 1
+    assert llm_models.Provider.objects.for_organization(org).filter(partner=partner).count() == 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -73,5 +73,5 @@ def test_same_partner_provisions_distinct_providers_across_orgs():
     org_a = Organization.objects.create(slug="fleet_org_a")
     org_b = Organization.objects.create(slug="fleet_org_b")
 
-    assert llm_models.Provider.objects.filter(name="Fleet Provider", organization=org_a).exists()
-    assert llm_models.Provider.objects.filter(name="Fleet Provider", organization=org_b).exists()
+    assert llm_models.Provider.objects.for_organization(org_a).filter(name="Fleet Provider").exists()
+    assert llm_models.Provider.objects.for_organization(org_b).filter(name="Fleet Provider").exists()

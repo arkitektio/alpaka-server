@@ -45,12 +45,14 @@ class Command(BaseCommand):
         try:
             if force:
                 # Delete existing provider if force is True
-                existing_providers = Provider.objects.filter(name=provider_name)
+                # A management command runs outside any request, so it has no
+                # organization to scope to and reads across all of them by design.
+                existing_providers = Provider.all_objects.filter(name=provider_name)
                 if existing_providers.exists():
                     existing_providers.delete()
                     self.stdout.write(f"Deleted existing provider: {provider_name}")
 
-            provider, created = Provider.objects.update_or_create(
+            provider, created = Provider.objects.for_write().update_or_create(
                 name=provider_name,
                 defaults={
                     "description": f"Ollama LLM provider at {ollama_url}",
@@ -88,7 +90,7 @@ class Command(BaseCommand):
                 model_id = model["name"]
                 features = detect_features(model_id)
                 input_modalities, output_modalities = detect_modalities(model_id)
-                obj, created = LLMModel.objects.update_or_create(
+                obj, created = LLMModel.objects.for_write().update_or_create(
                     provider=provider,
                     model_id=model_id,
                     defaults={

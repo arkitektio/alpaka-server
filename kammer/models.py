@@ -1,3 +1,4 @@
+from alpaka_server.scoping import OrganizationScopedManager
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
@@ -33,9 +34,18 @@ class Room(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, help_text="The time this room got created")
     contextual_structures = models.ManyToManyField(Structure)
 
+    objects = OrganizationScopedManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        base_manager_name = "all_objects"
+        default_manager_name = "all_objects"
+
     @property
     def messages(self):
-        return Message.objects.filter(agent__room=self).all()
+        # Message.room is the direct FK; agent__room is the same room by
+        # construction (see kammer.graphql.mutations.send) but goes through a join.
+        return Message.objects.for_write().filter(room=self).all()
 
     @property
     def streamlit_room_id(self):
@@ -50,8 +60,16 @@ class Agent(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name="agents",
-        help_text="The user that created this csomsment",
+        help_text="The user this agent acts on behalf of",
     )
+
+    # An agent belongs to the organization that owns its room.
+    objects = OrganizationScopedManager(field="room__organization")
+    all_objects = models.Manager()
+
+    class Meta:
+        base_manager_name = "all_objects"
+        default_manager_name = "all_objects"
 
 
 class Message(models.Model):
@@ -97,5 +115,13 @@ class Message(models.Model):
 
     provenance = ProvenanceField()
 
+    # A message belongs to the organization that owns its room.
+    objects = OrganizationScopedManager(field="room__organization")
+    all_objects = models.Manager()
 
-from .signals import *
+    class Meta:
+        base_manager_name = "all_objects"
+        default_manager_name = "all_objects"
+
+
+from .signals import *  # noqa: E402,F401,F403

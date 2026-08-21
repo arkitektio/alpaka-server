@@ -1,16 +1,18 @@
-"""Create and delete Alpaka providers."""
+"""Write-side resolvers for the llm app."""
 
-from .provider import create_provider, delete_provider
 from .chat import chat
-from .pull import pull
 from .image import generate_image
 from .model import use_model_for
+from .provider import create_provider, delete_provider, refresh_provider, update_provider
+from .pull import pull
 
 __all__ = [
+    "chat",
     "create_provider",
     "delete_provider",
-    "chat",
-    "pull",
     "generate_image",
+    "pull",
+    "refresh_provider",
+    "update_provider",
     "use_model_for",
 ]

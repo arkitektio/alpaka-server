@@ -27,7 +27,8 @@ import logging
 import litellm
 from asgiref.sync import sync_to_async
 from llm import models as llm_models
-from llm.manager import get_default_llm_model_for_user
+from llm.enums import DefaultKind
+from llm.manager import NoDefaultModel, get_default_llm_model_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -147,38 +148,38 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
 
         # Parse the default type
         suffix = model_identifier.replace("alpaka/default", "")
-        kind: Optional[str] = None
+        kind: Optional[DefaultKind] = None
 
         if suffix in ("", "-chat", "-text"):
-            kind = "text_generation"
+            kind = DefaultKind.TEXT_GENERATION
         elif suffix == "-embedding":
-            kind = "embedding"
+            kind = DefaultKind.EMBEDDING
+        elif suffix == "-image":
+            kind = DefaultKind.IMAGE_GENERATION
 
         if kind is not None:
             try:
                 return get_default_llm_model_for_user(user, organization, kind)
-            except llm_models.DefaultUse.DoesNotExist:
-                raise DefaultModelNotConfiguredError(f"No default model configured for '{kind}'. Please configure a default model for your user/organization.")
+            except NoDefaultModel as e:
+                raise DefaultModelNotConfiguredError(str(e)) from e
+
+    scoped = llm_models.LLMModel.objects.for_organization(organization).select_related("provider")
 
     # First try to get by database ID
     try:
-        return llm_models.LLMModel.objects.select_related("provider").get(id=model_identifier, provider__organization=organization)
+        return scoped.get(id=model_identifier)
     except (llm_models.LLMModel.DoesNotExist, ValueError):
         pass
 
     # Then try by model_id
-    try:
-        return llm_models.LLMModel.objects.select_related("provider").filter(model_id=model_identifier, provider__organization=organization).first()
-    except Exception:
-        pass
+    match = scoped.filter(model_id=model_identifier).first()
+    if match is not None:
+        return match
 
     # Finally try by llm_string pattern (provider/model)
-    try:
-        if "/" in model_identifier:
-            provider_name, model_id = model_identifier.split("/", 1)
-            return llm_models.LLMModel.objects.select_related("provider").get(provider__name=provider_name, model_id=model_id, provider__organization=organization)
-    except llm_models.LLMModel.DoesNotExist:
-        pass
+    if "/" in model_identifier:
+        provider_name, model_id = model_identifier.split("/", 1)
+        return scoped.filter(provider__name=provider_name, model_id=model_id).first()
 
     return None
 
@@ -186,15 +187,15 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
 @sync_to_async
 def get_all_models_for_organization(organization: Organization) -> list[llm_models.LLMModel]:
     """Get all available models for an organization."""
-    return list(llm_models.LLMModel.objects.select_related("provider").filter(provider__organization=organization).all())
+    return list(llm_models.LLMModel.objects.for_organization(organization).select_related("provider"))
 
 
 @sync_to_async
-def get_default_model(user: User, organization: Organization, kind: str) -> Optional[llm_models.LLMModel]:
+def get_default_model(user: User, organization: Organization, kind: DefaultKind) -> Optional[llm_models.LLMModel]:
     """Get the default model for a user and organization."""
     try:
         return get_default_llm_model_for_user(user, organization, kind)
-    except llm_models.DefaultUse.DoesNotExist:
+    except NoDefaultModel:
         return None
 
 
@@ -332,7 +333,7 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
             return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
     else:
         # Use default model for chat
-        model = await get_default_model(user, organization, "text_generation")
+        model = await get_default_model(user, organization, DefaultKind.TEXT_GENERATION)
         if not model:
             return create_openai_error_response("No model specified and no default model configured", error_type="invalid_request_error", param="model", status=400)
 
@@ -465,7 +466,7 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
         if not model:
             return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
     else:
-        model = await get_default_model(user, organization, "text_generation")
+        model = await get_default_model(user, organization, DefaultKind.TEXT_GENERATION)
         if not model:
             return create_openai_error_response("No model specified and no default model configured", error_type="invalid_request_error", param="model", status=400)
 
@@ -569,7 +570,7 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         if not model:
             return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
     else:
-        model = await get_default_model(user, organization, "embedding")
+        model = await get_default_model(user, organization, DefaultKind.EMBEDDING)
         if not model:
             return create_openai_error_response("No model specified and no default embedding model configured", error_type="invalid_request_error", param="model", status=400)
 
