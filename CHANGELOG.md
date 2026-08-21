@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.7 (2026-08-21)
+
+### Bug Fixes
+
+- Updates
+  ([`4d1060c`](https://github.com/arkitektio/alpaka-server/commit/4d1060cc1dc6316bd5a624f4fd2168c03d0f5ada))
+
+
 ## v2.0.0-rc.6 (2026-08-20)
 
 ### Bug Fixes
