@@ -108,6 +108,39 @@ class Provider(models.Model):
         unique_together = ("organization", "name")
 
 
+#: litellm routes on the prefix before the first "/" in the model string, which
+#: must be one of its provider keys. ``Provider.kind`` is the authoritative
+#: field for that; ``Provider.name`` is a display name a user may set to
+#: anything ("My OpenRouter"), so routing must never be derived from it.
+#: CUSTOM and UNKNOWN are deliberately absent: they fall back to the name-based
+#: convention, which is the only routing information such a provider carries.
+LITELLM_PREFIX_BY_KIND = {
+    ProviderKind.OPENAI.value: "openai",
+    ProviderKind.ANTHROPIC.value: "anthropic",
+    ProviderKind.GOOGLE.value: "gemini",
+    ProviderKind.COHERE.value: "cohere",
+    ProviderKind.MISTRAL.value: "mistral",
+    ProviderKind.HUGGINGFACE.value: "huggingface",
+    ProviderKind.OLLAMA.value: "ollama",
+    ProviderKind.AZURE.value: "azure",
+    ProviderKind.AWS.value: "bedrock",
+    ProviderKind.VERTEX_AI.value: "vertex_ai",
+    ProviderKind.PALM.value: "palm",
+    ProviderKind.REPLICATE.value: "replicate",
+    ProviderKind.TOGETHER_AI.value: "together_ai",
+    ProviderKind.ANYSCALE.value: "anyscale",
+    ProviderKind.FIREWORKS_AI.value: "fireworks_ai",
+    ProviderKind.DEEPINFRA.value: "deepinfra",
+    ProviderKind.PERPLEXITY.value: "perplexity",
+    ProviderKind.GROQ.value: "groq",
+    ProviderKind.OPENROUTER.value: "openrouter",
+}
+
+KINDS_BY_LITELLM_PREFIX: dict[str, list[str]] = {}
+for _kind, _prefix in LITELLM_PREFIX_BY_KIND.items():
+    KINDS_BY_LITELLM_PREFIX.setdefault(_prefix, []).append(_kind)
+
+
 class LLMModel(models.Model):
     provider = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="models")
     model_id = models.CharField(max_length=255)
@@ -131,7 +164,9 @@ class LLMModel(models.Model):
 
     @property
     def llm_string(self):
-        return f"{self.provider.name}/{self.model_id}"
+        kind = getattr(self.provider.kind, "value", self.provider.kind)
+        prefix = LITELLM_PREFIX_BY_KIND.get(kind, self.provider.name)
+        return f"{prefix}/{self.model_id}"
 
     def get_features(self):
         return self.features or []

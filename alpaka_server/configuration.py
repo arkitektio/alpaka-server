@@ -10,7 +10,7 @@ with a ``ValidationError`` if they are not supplied via config or environment.
 import os
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -117,6 +117,52 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(description="Redis connection.")
     authentikate: AuthentikateSettings = Field(description="Token-verification config (authentikate).")
     provider_partners: List[ProviderPartnerModel] = Field(default_factory=list, description="Pre-declared LLM providers; those with auto_configure are provisioned for every new organization.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_providers_shorthand(cls, data: Any) -> Any:
+        """Fold a top-level ``providers:`` block into ``provider_partners``.
+
+        Deployments write the shorthand::
+
+            providers:
+            - openrouter: sk-or-...
+
+        With ``extra="ignore"`` that block used to be silently discarded and no
+        provider was ever provisioned. Each shorthand entry maps every
+        ``<kind>: <api_key>`` pair to an auto-configured partner; keys with a
+        null value (e.g. a bare ``organization:``) are skipped. Entries that
+        already look like a full ``ProviderPartnerModel`` (they carry an
+        ``identifier``) pass through unchanged.
+        """
+        if not isinstance(data, dict):
+            return data
+        providers = data.get("providers")
+        if not providers or data.get("provider_partners"):
+            return data
+
+        partners: List[Any] = []
+        for entry in providers:
+            if not isinstance(entry, dict):
+                continue
+            if "identifier" in entry:
+                partners.append(entry)
+                continue
+            for kind, api_key in entry.items():
+                if not api_key or not isinstance(api_key, str):
+                    continue
+                partners.append(
+                    {
+                        "name": kind,
+                        "identifier": kind,
+                        "kind": kind,
+                        "api_key": api_key,
+                        "auto_configure": True,
+                    }
+                )
+        if partners:
+            data = {**data, "provider_partners": partners}
+        return data
     ollama_url: str = Field(default="http://ollama:11434", description="Base URL of the Ollama server.")
     chroma_db_host: str = Field(default="chromadb", description="ChromaDB vector store host.")
     chroma_db_port: int = Field(default=8000, description="ChromaDB vector store port.")

@@ -13,7 +13,7 @@ model/tool parameters from the database.
 
 import json
 import time
-from typing import Optional, AsyncGenerator, Union, Tuple
+from typing import Any, AsyncGenerator, AsyncIterable, Optional, Union, Tuple
 from django.http import JsonResponse, StreamingHttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 from authentikate.utils import authenticate_header_or_none
@@ -55,7 +55,7 @@ async def authenticate_request(request: HttpRequest) -> Tuple[User, object, Orga
     Raises:
         AuthenticationError: If authentication fails
     """
-    token = authenticate_header_or_none(request.headers)
+    token = await authenticate_header_or_none(request.headers)
     if not token:
         raise AuthenticationError("Missing or invalid authentication token")
 
@@ -176,10 +176,15 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
     if match is not None:
         return match
 
-    # Finally try by llm_string pattern (provider/model)
+    # Finally try by llm_string pattern (provider/model). The advertised ids
+    # use the litellm prefix derived from Provider.kind, but a provider's
+    # display name is also accepted for backward compatibility.
     if "/" in model_identifier:
-        provider_name, model_id = model_identifier.split("/", 1)
-        return scoped.filter(provider__name=provider_name, model_id=model_id).first()
+        prefix, model_id = model_identifier.split("/", 1)
+        match = scoped.filter(provider__kind__in=llm_models.KINDS_BY_LITELLM_PREFIX.get(prefix, []), model_id=model_id).first()
+        if match is None:
+            match = scoped.filter(provider__name=prefix, model_id=model_id).first()
+        return match
 
     return None
 
@@ -340,54 +345,20 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 
-    # Extract parameters
-    messages = payload.get("messages", [])
-    stream = payload.get("stream", False)
-    tools = payload.get("tools")
-    tool_choice = payload.get("tool_choice")
-    temperature = payload.get("temperature")
-    max_tokens = payload.get("max_tokens")
-    top_p = payload.get("top_p")
-    frequency_penalty = payload.get("frequency_penalty")
-    presence_penalty = payload.get("presence_penalty")
-    stop = payload.get("stop")
-    n = payload.get("n", 1)
-    response_format = payload.get("response_format")
+    stream = bool(payload.get("stream", False))
 
-    # Build LiteLLM request kwargs
-    litellm_kwargs = {
-        "model": model.llm_string,
-        "messages": messages,
-        "api_base": model.provider.api_base,
-        "api_key": model.provider.api_key,
-        "stream": stream,
-    }
-
-    # Add optional parameters if provided
-    if tools:
-        litellm_kwargs["tools"] = tools
-    if tool_choice:
-        litellm_kwargs["tool_choice"] = tool_choice
-    if temperature is not None:
-        litellm_kwargs["temperature"] = temperature
-    if max_tokens is not None:
-        litellm_kwargs["max_tokens"] = max_tokens
-    if top_p is not None:
-        litellm_kwargs["top_p"] = top_p
-    if frequency_penalty is not None:
-        litellm_kwargs["frequency_penalty"] = frequency_penalty
-    if presence_penalty is not None:
-        litellm_kwargs["presence_penalty"] = presence_penalty
-    if stop:
-        litellm_kwargs["stop"] = stop
-    if n != 1:
-        litellm_kwargs["n"] = n
-    if response_format:
-        litellm_kwargs["response_format"] = response_format
+    litellm_kwargs = _build_litellm_kwargs(
+        payload,
+        model,
+        handled={"model", "messages", "stream"},
+        messages=payload["messages"],
+        stream=stream,
+    )
 
     try:
         if stream:
-            return await _handle_streaming_chat(litellm_kwargs)
+            response = await litellm.acompletion(**litellm_kwargs)
+            return _streaming_response(response)
         else:
             response = await litellm.acompletion(**litellm_kwargs)
             return JsonResponse(response.model_dump())
@@ -395,12 +366,51 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         return litellm_error_response(e, model=model)
 
 
-async def _handle_streaming_chat(litellm_kwargs: dict) -> StreamingHttpResponse:
-    """Handle streaming chat completions."""
+#: Request-body keys never forwarded to litellm: routing and credentials are
+#: decided by the resolved model's provider, not the caller.
+RESERVED_LITELLM_KEYS = {
+    "api_key",
+    "api_base",
+    "base_url",
+    "api_version",
+    "custom_llm_provider",
+    "extra_headers",
+    "organization",
+}
+
+
+def _build_litellm_kwargs(payload: dict, model: llm_models.LLMModel, *, handled: set, **explicit) -> dict:
+    """Assemble litellm kwargs: provider routing/credentials, the explicitly
+    handled fields, and every remaining request-body key forwarded verbatim.
+
+    A closed allowlist here silently dropped whatever the caller's SDK sent that
+    we hadn't enumerated (``stream_options``, ``seed``, ``logprobs``, ...); as a
+    tunnel we pass params through and reserve only the routing/credential keys.
+    """
+    kwargs = {
+        "model": model.llm_string,
+        "api_base": model.provider.api_base,
+        "api_key": model.provider.api_key,
+        **explicit,
+    }
+    for key, value in payload.items():
+        if key in handled or key in RESERVED_LITELLM_KEYS or value is None:
+            continue
+        kwargs[key] = value
+    return kwargs
+
+
+def _streaming_response(response: AsyncIterable[Any]) -> StreamingHttpResponse:
+    """Wrap an already-started litellm stream as SSE.
+
+    The upstream call is awaited by the caller *before* this response is
+    constructed, so pre-stream failures (bad provider key, rate limit) surface
+    as real HTTP statuses via ``litellm_error_response`` instead of a 200 with
+    an error frame. Only mid-stream failures degrade to an error event.
+    """
 
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         try:
-            response = await litellm.acompletion(**litellm_kwargs)
             async for chunk in response:
                 chunk_data = chunk.model_dump()
                 yield f"data: {json.dumps(chunk_data)}\n\n".encode()
@@ -473,60 +483,25 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 
-    prompt = payload.get("prompt")
-    stream = payload.get("stream", False)
+    stream = bool(payload.get("stream", False))
 
-    litellm_kwargs = {
-        "model": model.llm_string,
-        "prompt": prompt,
-        "api_base": model.provider.api_base,
-        "api_key": model.provider.api_key,
-        "stream": stream,
-    }
-
-    # Add optional parameters
-    for param in ["temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "stop", "n", "logprobs", "echo", "suffix"]:
-        if param in payload:
-            litellm_kwargs[param] = payload[param]
+    litellm_kwargs = _build_litellm_kwargs(
+        payload,
+        model,
+        handled={"model", "prompt", "stream"},
+        prompt=payload["prompt"],
+        stream=stream,
+    )
 
     try:
         if stream:
-            return await _handle_streaming_completion(litellm_kwargs)
+            response = await litellm.atext_completion(**litellm_kwargs)
+            return _streaming_response(response)
         else:
             response = await litellm.atext_completion(**litellm_kwargs)
             return JsonResponse(response.model_dump())
     except Exception as e:
-        logger.exception("Error in text completion")
-        return create_openai_error_response(f"Internal server error: {str(e)}", error_type="api_error", status=500)
-
-
-async def _handle_streaming_completion(litellm_kwargs: dict) -> StreamingHttpResponse:
-    """Handle streaming text completions."""
-
-    async def stream_generator() -> AsyncGenerator[bytes, None]:
-        try:
-            response = await litellm.atext_completion(**litellm_kwargs)
-            async for chunk in response:
-                chunk_data = chunk.model_dump()
-                yield f"data: {json.dumps(chunk_data)}\n\n".encode()
-            yield b"data: [DONE]\n\n"
-        except Exception as e:
-            error_data = {
-                "error": {
-                    "message": str(e),
-                    "type": "api_error",
-                }
-            }
-            yield f"data: {json.dumps(error_data)}\n\n".encode()
-
-    return StreamingHttpResponse(
-        stream_generator(),
-        content_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+        return litellm_error_response(e, model=model)
 
 
 @csrf_exempt
@@ -577,17 +552,16 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 
-    input_text = payload.get("input")
-    encoding_format = payload.get("encoding_format", "float")
+    litellm_kwargs = _build_litellm_kwargs(
+        payload,
+        model,
+        handled={"model", "input"},
+        input=payload["input"],
+        encoding_format=payload.get("encoding_format", "float"),
+    )
 
     try:
-        response = await litellm.aembedding(
-            model=model.llm_string,
-            input=input_text,
-            api_base=model.provider.api_base,
-            api_key=model.provider.api_key,
-            encoding_format=encoding_format,
-        )
+        response = await litellm.aembedding(**litellm_kwargs)
         return JsonResponse(response.model_dump())
     except Exception as e:
         return litellm_error_response(e, model=model)

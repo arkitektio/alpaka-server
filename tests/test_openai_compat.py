@@ -151,3 +151,47 @@ async def test_upstream_403_surfaces_as_typed_client_error(client, monkeypatch):
     assert excinfo.value.status_code == 403
     assert "openrouter" in str(excinfo.value)
     assert "Sakana AI" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_upstream_403_streaming_fails_before_first_byte(client, monkeypatch):
+    """With ``stream=True`` the upstream call is awaited before the SSE
+    response is constructed, so a pre-stream failure surfaces as a real HTTP
+    status the client raises on — not a 200 whose body carries an error frame."""
+    err = litellm.exceptions.APIError(
+        status_code=403,
+        message="OpenrouterException - 403 Forbidden (Sakana AI)",
+        llm_provider="openrouter",
+        model="gpt-4",
+    )
+    _mock_litellm(monkeypatch, error=err)
+    with pytest.raises(openai.PermissionDeniedError):
+        await client.chat.completions.create(
+            model="x", messages=[{"role": "user", "content": "hi"}], stream=True
+        )
+
+
+@pytest.mark.asyncio
+async def test_sdk_params_pass_through_but_reserved_keys_do_not(client, monkeypatch):
+    """Body params we never enumerated (``seed``) reach litellm verbatim, while
+    routing/credential keys smuggled via ``extra_body`` are dropped in favor of
+    the resolved provider's own."""
+    seen = {}
+    orig = litellm.acompletion
+
+    async def spy(**kw):
+        seen.update(kw)
+        kw["mock_response"] = "ok"
+        return await orig(**kw)
+
+    monkeypatch.setattr(views.litellm, "acompletion", spy)
+    await client.chat.completions.create(
+        model="x",
+        messages=[{"role": "user", "content": "hi"}],
+        seed=7,
+        extra_body={"api_base": "http://evil.example", "custom_llm_provider": "evil"},
+    )
+    assert seen["seed"] == 7
+    assert seen["api_base"] == FAKE_PROVIDER.api_base
+    assert seen["api_key"] == FAKE_PROVIDER.api_key
+    assert "custom_llm_provider" not in seen
