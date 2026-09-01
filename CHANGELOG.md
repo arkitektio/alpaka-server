@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.8 (2026-09-01)
+
+### Features
+
+- Better rest api
+  ([`2a032ca`](https://github.com/arkitektio/alpaka-server/commit/2a032ca698da3038b7bb5600c02806c0354845ba))
+
+
 ## v2.0.0-rc.7 (2026-08-21)
 
 ### Bug Fixes
