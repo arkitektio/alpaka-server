@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.9 (2026-09-02)
+
+### Bug Fixes
+
+- Atuhentikate
+  ([`acd7788`](https://github.com/arkitektio/alpaka-server/commit/acd7788f596fcf1afe477d42da836dd2907e19af))
+
+
 ## v2.0.0-rc.8 (2026-09-01)
 
 ### Features
