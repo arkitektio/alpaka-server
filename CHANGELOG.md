@@ -1,6 +1,38 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.10 (2026-09-10)
+
+### Features
+
+- Usage accounting, budgets, and streaming replies into rooms
+  ([`22e80cc`](https://github.com/arkitektio/alpaka-server/commit/22e80cca4e621d02f3a500f7180e84ed99476395))
+
+Usage accounting and budgets - UsageRecord rows for every LLM call (GraphQL chat/image, REST chat,
+  completions, embeddings incl. streaming, vector embedding): tokens, cost, latency, status.
+  Recording never raises. - Budget model per organization / user / model and period; hard budgets
+  block before the upstream call (REST 429 insufficient_quota, GraphQL error). - GraphQL:
+  usageRecords, usageStats, budgets, budget, budgetStatus, create/update/deleteBudget. Migration llm
+  0003.
+
+Streaming replies into rooms (agents live on clients; no server-side LLM) - GraphQL startMessage /
+  appendMessage (atomic concat) / finishMessage. - room subscription gains a kind field and emits
+  MESSAGE_CREATED/UPDATED/ FINISHED plus JOIN/LEAVE. - WebSocket /kammer/stream/ with server-side
+  delta coalescing, so a client can send one frame per token without a GraphQL mutation each. -
+  Shared kammer.streaming service behind both front doors. - SendMessageInput.notify removed (never
+  read); parent is validated.
+
+Fixes - settings.py honours django.* from the config schema (DEBUG, SECRET_KEY, hosts, CSRF origins,
+  forwarded host); keep MY_SCRIPT_NAME for kante. - New ensureadmin command that run.sh has called
+  since v1; scripts set -euo. - inspectollama requires --organization and reuses
+  arefresh_provider_models. - documents query returns results for every queryText. - Dockerfile CMD;
+  CONFIG.md documents the providers: shorthand; dead code.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+Claude-Session: https://claude.ai/code/session_01WoE7tHgbZ4j5yZaXkYMJPX
+
+
 ## v2.0.0-rc.9 (2026-09-02)
 
 ### Bug Fixes
