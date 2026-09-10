@@ -1,3 +1,5 @@
+import decimal
+
 import strawberry
 from typing import Optional, List
 from strawberry import scalars
@@ -99,3 +101,33 @@ class UseModelForInput:
 
     model: strawberry.ID
     kind: enums.DefaultKind
+
+
+@strawberry.input(description="A budget to create")
+class CreateBudgetInput:
+    """A new cap on LLM consumption. Applies to the whole organization unless narrowed to a user and/or a model."""
+
+    user: Optional[strawberry.ID] = None
+    model: Optional[strawberry.ID] = None
+    period: enums.BudgetPeriod = enums.BudgetPeriod.MONTH
+    limit_tokens: Optional[int] = None
+    limit_cost: Optional[decimal.Decimal] = None
+    hard: bool = True
+
+
+@strawberry.input(description="Changes to a budget; omitted fields are left as they are, explicit nulls clear a limit")
+class UpdateBudgetInput:
+    """A partial update of a budget."""
+
+    id: strawberry.ID
+    period: Optional[enums.BudgetPeriod] = strawberry.UNSET
+    limit_tokens: Optional[int] = strawberry.UNSET
+    limit_cost: Optional[decimal.Decimal] = strawberry.UNSET
+    hard: Optional[bool] = strawberry.UNSET
+
+
+@strawberry.input(description="The budget to delete")
+class DeleteBudgetInput:
+    """The budget to remove."""
+
+    id: strawberry.ID

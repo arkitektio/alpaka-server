@@ -1,5 +1,4 @@
 import strawberry
-from typing import Optional, List
 from enum import Enum
 
 # --- ENUMS ---
@@ -94,3 +93,32 @@ class ProviderKind(str, Enum):
     CUSTOM = "custom"
     UNKNOWN = "unknown"
     OPENROUTER = "openrouter"
+
+
+@strawberry.enum(description="The entry point an LLM call came through")
+class UsageEndpoint(str, Enum):
+    """Which front door produced a usage record."""
+
+    GRAPHQL_CHAT = "graphql_chat"
+    GRAPHQL_IMAGE = "graphql_image"
+    REST_CHAT = "rest_chat"
+    REST_COMPLETION = "rest_completion"
+    REST_EMBEDDING = "rest_embedding"
+    VECTOR_EMBEDDING = "vector_embedding"
+
+
+@strawberry.enum(description="Whether an LLM call succeeded")
+class UsageStatus(str, Enum):
+    """The outcome recorded for an LLM call."""
+
+    OK = "ok"
+    ERROR = "error"
+
+
+@strawberry.enum(description="The window a budget is measured over")
+class BudgetPeriod(str, Enum):
+    """Calendar period (UTC) a budget resets on."""
+
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"

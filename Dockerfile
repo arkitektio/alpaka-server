@@ -23,3 +23,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /workspace
 COPY --from=builder /opt/venv /opt/venv
 COPY . .
+
+# Compose files may override this (e.g. `bash run-debug.sh`), but the image
+# must be runnable on its own.
+CMD ["bash", "run.sh"]

@@ -48,6 +48,13 @@ class Query:
     default_uses: list[llm_types.DefaultUse] = strawberry_django.field(description="The models the caller has registered as defaults")
     default_model_for = strawberry_django.field(resolver=llm_queries.default_model_for, description="The model the caller uses by default for one kind of task, if any")
 
+    # Usage and budgets
+    usage_records: list[llm_types.UsageRecord] = strawberry_django.field(description="This organization's recorded LLM calls")
+    usage_stats: llm_types.UsageStats = strawberry_django.field(resolver=llm_types.UsageStatsResolver, description="Aggregate token, cost and latency statistics over this organization's LLM calls")
+    budgets: list[llm_types.Budget] = strawberry_django.field(description="This organization's budgets")
+    budget = strawberry_django.field(resolver=llm_queries.budget, description="Get a single budget by ID")
+    budget_status = strawberry_django.field(resolver=llm_queries.budget_status, description="How much of a budget is used in the current period")
+
     # Vector collections
     chroma_collection = strawberry_django.field(resolver=vector_queries.chroma_collection, description="Get a single Chroma collection by ID")
     chroma_collections: list[vector_types.ChromaCollection] = strawberry_django.field(description="List this organization's Chroma collections")
@@ -61,7 +68,10 @@ class Mutation:
     # Rooms and messages
     create_room = strawberry_django.mutation(resolver=kammer_mutations.create_room, description="Open a new room")
     delete_room = strawberry_django.mutation(resolver=kammer_mutations.delete_room, description="Delete a room and its messages")
-    send = strawberry_django.mutation(resolver=kammer_mutations.send, description="Post a message into a room")
+    send = strawberry_django.mutation(resolver=kammer_mutations.send, description="Post a complete message into a room")
+    start_message = strawberry_django.mutation(resolver=kammer_mutations.start_message, description="Open a message to stream text into. Only the starting agent (same user and client) can append to or finish it.")
+    append_message = strawberry_django.mutation(resolver=kammer_mutations.append_message, description="Append a delta to a streaming message. Batch deltas (every ~100-250 ms or ~30 characters) and await each call before sending the next, so they arrive in order.")
+    finish_message = strawberry_django.mutation(resolver=kammer_mutations.finish_message, description="Close a streaming message. Pass the full final text so any delta lost on the way is repaired; call it in a finally block so a crashed stream never stays open.")
 
     # Providers and models
     create_provider = strawberry_django.mutation(resolver=llm_mutations.create_provider, description="Configure a new LLM provider and list the models it offers")
@@ -70,6 +80,11 @@ class Mutation:
     delete_provider = strawberry_django.mutation(resolver=llm_mutations.delete_provider, description="Delete a provider and the models it offers")
     pull = strawberry_django.mutation(resolver=llm_mutations.pull, description="Pull a model into an Ollama provider")
     use_model_for = strawberry_django.mutation(resolver=llm_mutations.use_model_for, description="Register a model as the caller's default for a kind of task")
+
+    # Budgets
+    create_budget = strawberry_django.mutation(resolver=llm_mutations.create_budget, description="Cap this organization's LLM consumption, optionally for one user and/or model")
+    update_budget = strawberry_django.mutation(resolver=llm_mutations.update_budget, description="Change a budget's period, limits or hardness")
+    delete_budget = strawberry_django.mutation(resolver=llm_mutations.delete_budget, description="Remove a budget")
 
     # Inference
     chat = strawberry_django.mutation(resolver=llm_mutations.chat, description="Send a chat completion request")
@@ -86,7 +101,7 @@ class Mutation:
 class Subscription:
     """The root subscription type."""
 
-    room = strawberry.subscription(resolver=kammer_subscriptions.room, description="Join a room and receive its messages as they are posted")
+    room = strawberry.subscription(resolver=kammer_subscriptions.room, description="Join a room and receive its events: messages created, streamed into and finished, and agents joining or leaving")
 
 
 schema = strawberry.federation.Schema(

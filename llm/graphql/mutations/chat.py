@@ -11,8 +11,9 @@ import litellm
 from kante.types import Info
 
 from llm import manager, models
-from llm.enums import DefaultKind
+from llm.enums import DefaultKind, UsageEndpoint
 from llm.errors import wrap_llm_errors
+from llm.usage import enforce_budget, track_usage
 from llm.inputs import ChatInput, ChatMessageInput, ToolInput
 from llm.types import ChatMessage, ChatResponse, Choice, FunctionCall, ThinkingBlock, ToolCall, Usage
 
@@ -184,17 +185,23 @@ def chat(info: Info, input: ChatInput) -> ChatResponse:
     if not chat_model.is_available:
         raise Exception(f"Model '{chat_model.llm_string}' is not currently available")
 
+    request = info.context.request
+    # Outside wrap_llm_errors on purpose: a spent budget is not an LLM failure.
+    enforce_budget(request.organization, request.user, chat_model)
+
     # Streaming is not expressible on a mutation; the REST endpoint serves it.
-    with wrap_llm_errors(chat_model):
-        response = litellm.completion(
-            model=chat_model.llm_string,
-            messages=serialize_messages(input.messages),
-            tools=serialize_tools(input.tools),
-            api_base=chat_model.provider.api_base,
-            api_key=chat_model.provider.api_key,
-            stream=False,
-            timeout=COMPLETION_TIMEOUT_SECONDS,
-            **generation_kwargs(input),
-        )
+    with track_usage(organization=request.organization, user=request.user, client=request.client, model=chat_model, endpoint=UsageEndpoint.GRAPHQL_CHAT) as track:
+        with wrap_llm_errors(chat_model):
+            response = litellm.completion(
+                model=chat_model.llm_string,
+                messages=serialize_messages(input.messages),
+                tools=serialize_tools(input.tools),
+                api_base=chat_model.provider.api_base,
+                api_key=chat_model.provider.api_key,
+                stream=False,
+                timeout=COMPLETION_TIMEOUT_SECONDS,
+                **generation_kwargs(input),
+            )
+        track.set(response)
 
     return to_chat_response(response)

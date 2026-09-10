@@ -9,8 +9,9 @@ import litellm
 from kante.types import Info
 
 from llm import enums
-from llm.enums import DefaultKind
+from llm.enums import DefaultKind, UsageEndpoint
 from llm.errors import wrap_llm_errors
+from llm.usage import enforce_budget, track_usage
 from llm.graphql.mutations.chat import resolve_model
 from llm.inputs import ImageInput
 from llm.models import LLMModel
@@ -28,8 +29,12 @@ OPENROUTER_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
 _OPENROUTER_PROMPT = "Create a picture of the described image. Do not ask for another input, just create the image, in a cartoon-like style: {description}"
 
 
-def _generate_via_openrouter(model: LLMModel, description: str) -> str:
-    """Ask OpenRouter for an image and return it as base64, without the data URI prefix."""
+def _generate_via_openrouter(model: LLMModel, description: str) -> tuple[str, dict]:
+    """Ask OpenRouter for an image.
+
+    Returns the image as base64 (without the data URI prefix) and the raw
+    response JSON, whose ``usage`` block feeds the usage record.
+    """
     request = urllib.request.Request(
         OPENROUTER_COMPLETIONS_URL,
         data=json.dumps(
@@ -62,10 +67,10 @@ def _generate_via_openrouter(model: LLMModel, description: str) -> str:
 
     image_url = images[0]["image_url"]["url"]
     if image_url.startswith("data:"):
-        return image_url.split(",")[-1]
+        return image_url.split(",")[-1], result
 
     with urllib.request.urlopen(image_url, timeout=IMAGE_TIMEOUT_SECONDS) as image_response:
-        return base64.b64encode(image_response.read()).decode("utf-8")
+        return base64.b64encode(image_response.read()).decode("utf-8"), result
 
 
 def generate_image(info: Info, input: ImageInput) -> ImageResponse:
@@ -75,16 +80,24 @@ def generate_image(info: Info, input: ImageInput) -> ImageResponse:
     if not image_model.is_available:
         raise Exception(f"Model '{image_model.llm_string}' is not currently available")
 
-    if image_model.provider.kind == enums.ProviderKind.OPENROUTER:
-        return ImageResponse(image=_generate_via_openrouter(image_model, input.description))
+    request = info.context.request
+    # Outside wrap_llm_errors on purpose: a spent budget is not an LLM failure.
+    enforce_budget(request.organization, request.user, image_model)
 
-    with wrap_llm_errors(image_model):
-        response = litellm.image_generation(
-            model=image_model.llm_string,
-            prompt=input.description,
-            api_base=image_model.provider.api_base,
-            api_key=image_model.provider.api_key,
-            timeout=IMAGE_TIMEOUT_SECONDS,
-        )
+    with track_usage(organization=request.organization, user=request.user, client=request.client, model=image_model, endpoint=UsageEndpoint.GRAPHQL_IMAGE) as track:
+        if image_model.provider.kind == enums.ProviderKind.OPENROUTER:
+            image, raw = _generate_via_openrouter(image_model, input.description)
+            track.set(raw)
+            return ImageResponse(image=image)
+
+        with wrap_llm_errors(image_model):
+            response = litellm.image_generation(
+                model=image_model.llm_string,
+                prompt=input.description,
+                api_base=image_model.provider.api_base,
+                api_key=image_model.provider.api_key,
+                timeout=IMAGE_TIMEOUT_SECONDS,
+            )
+        track.set(response, call_type="image_generation")
 
     return ImageResponse(image=response.data[0]["b64_json"])

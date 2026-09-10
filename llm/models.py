@@ -1,9 +1,8 @@
 # api/models.py
 from alpaka_server.scoping import OrganizationScopedManager
 from django.db import models
-from llm.enums import FeatureType, ProviderKind
-import litellm
-from authentikate.models import Organization, User
+from llm.enums import BudgetPeriod, FeatureType, ProviderKind, UsageEndpoint, UsageStatus
+from authentikate.models import Client, Organization, User
 
 
 class ProviderPartner(models.Model):
@@ -202,3 +201,73 @@ class DefaultUse(models.Model):
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
         unique_together = ("kind", "organization", "user")
+
+
+class UsageRecord(models.Model):
+    """One LLM call, as seen by the gateway.
+
+    Written by :mod:`llm.usage` from every front door (GraphQL chat/image, the
+    OpenAI-compatible REST views, vector embedding). The model is denormalised
+    on purpose: a provider or model can be deleted later, and the record must
+    still say what was called and what it cost.
+    """
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="usage_records", help_text="The organization that was billed")
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_records", help_text="The user who made the call")
+    client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_records", help_text="The client the call came through")
+    model = models.ForeignKey(LLMModel, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_records", help_text="The model that was called, if it still exists")
+    provider_kind = models.CharField(max_length=50, blank=True, default="")
+    model_identifier = models.CharField(max_length=255, blank=True, default="", help_text="The provider-side model id at the time of the call")
+    llm_string = models.CharField(max_length=512, blank=True, default="")
+    endpoint = models.CharField(max_length=32, choices=[(e.value, e.name) for e in UsageEndpoint])
+    prompt_tokens = models.PositiveIntegerField(default=0)
+    completion_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+    cost = models.DecimalField(max_digits=20, decimal_places=10, null=True, blank=True, help_text="Cost in USD as reported or estimated by litellm; null when the model is not in its price map")
+    latency_ms = models.PositiveIntegerField(null=True, blank=True)
+    status = models.CharField(max_length=8, choices=[(e.value, e.name) for e in UsageStatus], default=UsageStatus.OK.value)
+    error_type = models.CharField(max_length=128, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrganizationScopedManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        base_manager_name = "all_objects"
+        default_manager_name = "all_objects"
+        indexes = [
+            models.Index(fields=["organization", "created_at"], name="llm_usage_org_created_idx"),
+            models.Index(fields=["organization", "user", "created_at"], name="llm_usage_org_user_created_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.endpoint} {self.llm_string} {self.total_tokens} tokens"
+
+
+class Budget(models.Model):
+    """A cap on LLM consumption per calendar period.
+
+    Applies to the whole organization, or only to one user and/or one model.
+    ``hard`` budgets block calls once spent (see :func:`llm.usage.enforce_budget`);
+    soft budgets only log.
+    """
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="budgets")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="budgets", help_text="Restrict the budget to one user; null applies to everyone in the organization")
+    model = models.ForeignKey(LLMModel, on_delete=models.CASCADE, null=True, blank=True, related_name="budgets", help_text="Restrict the budget to one model; null applies to every model")
+    period = models.CharField(max_length=8, choices=[(e.value, e.name) for e in BudgetPeriod], default=BudgetPeriod.MONTH.value)
+    limit_tokens = models.PositiveBigIntegerField(null=True, blank=True, help_text="Maximum total tokens per period")
+    limit_cost = models.DecimalField(max_digits=16, decimal_places=4, null=True, blank=True, help_text="Maximum cost in USD per period")
+    hard = models.BooleanField(default=True, help_text="Block calls once exceeded; otherwise only log a warning")
+    creator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrganizationScopedManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        base_manager_name = "all_objects"
+        default_manager_name = "all_objects"
+
+    def __str__(self):
+        return f"Budget {self.pk} ({self.period})"

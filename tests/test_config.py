@@ -45,3 +45,37 @@ def test_explicit_provider_partners_wins_over_shorthand():
         provider_partners=[{"identifier": "explicit", "name": "Explicit", "kind": "openai"}],
     )
     assert [p.identifier for p in s.provider_partners] == ["explicit"]
+
+
+def test_django_settings_mirror_config():
+    """settings.py must take its security-relevant values from the validated
+    config instead of hard-coding them (DEBUG used to be a literal ``True``)."""
+    import os
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "alpaka_server.settings")
+    from django.conf import settings
+
+    conf = Settings()
+    assert settings.SECRET_KEY == conf.django.secret_key
+    assert settings.DEBUG == conf.django.debug
+    # pytest-django appends "testserver" under the test runner.
+    assert set(conf.django.hosts) <= set(settings.ALLOWED_HOSTS)
+    assert settings.CSRF_TRUSTED_ORIGINS == list(conf.django.csrf_trusted_origins)
+    assert settings.USE_X_FORWARDED_HOST == conf.django.use_x_forwarded_host
+    assert settings.MY_SCRIPT_NAME == conf.django.force_script_name
+    # kante prefixes every URL pattern with MY_SCRIPT_NAME itself; Django's
+    # FORCE_SCRIPT_NAME would strip that prefix again and 404 every route.
+    assert not getattr(settings, "FORCE_SCRIPT_NAME", None)
+    assert not hasattr(settings, "GRAPHENE")
+
+
+def test_django_admin_setting_is_exposed_as_dict():
+    """``ensureadmin`` reads ``settings.DJANGO_ADMIN``; it must mirror ``django.admin``."""
+    import os
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "alpaka_server.settings")
+    from django.conf import settings
+
+    conf = Settings()
+    expected = conf.django.admin.model_dump() if conf.django.admin else None
+    assert settings.DJANGO_ADMIN == expected

@@ -42,7 +42,7 @@ class DjangoSettings(BaseModel):
     use_x_forwarded_host: bool = Field(default=True, description="Trust the X-Forwarded-Host header behind a reverse proxy.")
     admin: Optional[AdminSettings] = Field(default=None, description="Superuser provisioned on first boot.")
     csrf_trusted_origins: List[str] = Field(default_factory=lambda: ["http://localhost", "https://localhost"], description="CSRF_TRUSTED_ORIGINS for unsafe (POST) requests.")
-    force_script_name: str = Field(default="", description="URL path prefix (FORCE_SCRIPT_NAME) this service is served under.")
+    force_script_name: str = Field(default="", description="URL path prefix this service is served under (applied to every route by kante's dynamicpath; not Django's FORCE_SCRIPT_NAME).")
 
 
 class PostgresSettings(BaseModel):

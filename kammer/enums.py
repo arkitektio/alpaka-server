@@ -1,17 +1,17 @@
 from enum import Enum
+
 import strawberry
-from django.db.models import TextChoices
 
 
-@strawberry.enum(description="The Kind of a Descendant")
-class DescendantKind(str, Enum):
-    """The Kind of a Descendant
+@strawberry.enum(description="What happened in a room")
+class RoomEventKind(str, Enum):
+    """The kind of a room event.
 
-    Determines the type of rich rendering that should be applied to the descendant
-
-
+    ``MESSAGE_*`` events carry the message; ``JOIN``/``LEAVE`` carry the agent.
     """
 
-    LEAF = "LEAF"
-    MENTION = "MENTION"
-    PARAGRAPH = "PARAGRAPH"
+    MESSAGE_CREATED = "MESSAGE_CREATED"
+    MESSAGE_UPDATED = "MESSAGE_UPDATED"
+    MESSAGE_FINISHED = "MESSAGE_FINISHED"
+    JOIN = "JOIN"
+    LEAVE = "LEAVE"

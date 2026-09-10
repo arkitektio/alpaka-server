@@ -13,7 +13,7 @@ model/tool parameters from the database.
 
 import json
 import time
-from typing import Any, AsyncGenerator, AsyncIterable, Optional, Union, Tuple
+from typing import Any, AsyncGenerator, AsyncIterable, Awaitable, Callable, Optional, Union, Tuple
 from django.http import JsonResponse, StreamingHttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 from authentikate.utils import authenticate_header_or_none
@@ -27,8 +27,9 @@ import logging
 import litellm
 from asgiref.sync import sync_to_async
 from llm import models as llm_models
-from llm.enums import DefaultKind
+from llm.enums import DefaultKind, UsageEndpoint
 from llm.manager import NoDefaultModel, get_default_llm_model_for_user
+from llm.usage import BudgetExceeded, aenforce_budget, arecord_usage, usage_from_response, usage_from_stream
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,8 @@ def litellm_error_response(e: Exception, *, model: Optional[llm_models.LLMModel]
     before ``APIError`` because they all inherit from it.
     """
     ctx = f" for model '{model.llm_string}'" if model is not None else ""
+    if isinstance(e, BudgetExceeded):
+        return create_openai_error_response(f"{e}", error_type="insufficient_quota", code="budget_exceeded", status=429)
     if isinstance(e, litellm.exceptions.AuthenticationError):
         return create_openai_error_response(f"Provider authentication failed{ctx}: {e}", error_type="authentication_error", status=401)
     if isinstance(e, litellm.exceptions.RateLimitError):
@@ -355,14 +358,32 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         stream=stream,
     )
 
+    started = time.monotonic()
+    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_CHAT)
+
     try:
+        await aenforce_budget(organization, user, model)
         if stream:
+            # Ask the upstream to report usage on its final chunk. The extra
+            # usage-only chunk is hidden from callers that did not ask for it.
+            injected_usage = "stream_options" not in payload
+            if injected_usage:
+                litellm_kwargs["stream_options"] = {"include_usage": True}
+                litellm_kwargs.setdefault("drop_params", True)
             response = await litellm.acompletion(**litellm_kwargs)
-            return _streaming_response(response)
+
+            async def on_complete(chunks: list, error: Optional[BaseException]) -> None:
+                facts = await sync_to_async(usage_from_stream)(chunks, messages=payload["messages"], model_string=model.llm_string)
+                await arecord_usage(**accounting, facts=facts, started_at=started, error=error)
+
+            return _streaming_response(response, on_complete=on_complete, hide_usage_chunks=injected_usage)
         else:
             response = await litellm.acompletion(**litellm_kwargs)
+            await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string), started_at=started)
             return JsonResponse(response.model_dump())
     except Exception as e:
+        if not isinstance(e, BudgetExceeded):
+            await arecord_usage(**accounting, started_at=started, error=e)
         return litellm_error_response(e, model=model)
 
 
@@ -400,22 +421,37 @@ def _build_litellm_kwargs(payload: dict, model: llm_models.LLMModel, *, handled:
     return kwargs
 
 
-def _streaming_response(response: AsyncIterable[Any]) -> StreamingHttpResponse:
+StreamCallback = Callable[[list, Optional[BaseException]], Awaitable[None]]
+
+
+def _streaming_response(response: AsyncIterable[Any], *, on_complete: Optional[StreamCallback] = None, hide_usage_chunks: bool = False) -> StreamingHttpResponse:
     """Wrap an already-started litellm stream as SSE.
 
     The upstream call is awaited by the caller *before* this response is
     constructed, so pre-stream failures (bad provider key, rate limit) surface
     as real HTTP statuses via ``litellm_error_response`` instead of a 200 with
     an error frame. Only mid-stream failures degrade to an error event.
+
+    ``on_complete(chunks, error)`` runs once the stream ends — after ``[DONE]``,
+    after an error frame, or when the client disconnects — so usage can be
+    recorded from whatever was actually sent. ``hide_usage_chunks`` drops the
+    choices-less usage chunk that ``stream_options.include_usage`` adds, for
+    callers that did not request it.
     """
 
     async def stream_generator() -> AsyncGenerator[bytes, None]:
+        chunks: list = []
+        error: Optional[BaseException] = None
         try:
             async for chunk in response:
+                chunks.append(chunk)
                 chunk_data = chunk.model_dump()
+                if hide_usage_chunks and not chunk_data.get("choices") and chunk_data.get("usage"):
+                    continue
                 yield f"data: {json.dumps(chunk_data)}\n\n".encode()
             yield b"data: [DONE]\n\n"
         except Exception as e:
+            error = e
             error_data = {
                 "error": {
                     "message": str(e),
@@ -423,6 +459,15 @@ def _streaming_response(response: AsyncIterable[Any]) -> StreamingHttpResponse:
                 }
             }
             yield f"data: {json.dumps(error_data)}\n\n".encode()
+        except BaseException as e:  # client disconnect: GeneratorExit / CancelledError
+            error = e
+            raise
+        finally:
+            if on_complete is not None:
+                try:
+                    await on_complete(chunks, error)
+                except Exception:
+                    logger.exception("Usage callback failed after stream")
 
     return StreamingHttpResponse(
         stream_generator(),
@@ -493,14 +538,26 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
         stream=stream,
     )
 
+    started = time.monotonic()
+    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_COMPLETION)
+
     try:
+        await aenforce_budget(organization, user, model)
         if stream:
             response = await litellm.atext_completion(**litellm_kwargs)
-            return _streaming_response(response)
+
+            async def on_complete(chunks: list, error: Optional[BaseException]) -> None:
+                facts = await sync_to_async(usage_from_stream)(chunks, model_string=model.llm_string, text_completion=True)
+                await arecord_usage(**accounting, facts=facts, started_at=started, error=error)
+
+            return _streaming_response(response, on_complete=on_complete)
         else:
             response = await litellm.atext_completion(**litellm_kwargs)
+            await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string), started_at=started)
             return JsonResponse(response.model_dump())
     except Exception as e:
+        if not isinstance(e, BudgetExceeded):
+            await arecord_usage(**accounting, started_at=started, error=e)
         return litellm_error_response(e, model=model)
 
 
@@ -560,10 +617,17 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         encoding_format=payload.get("encoding_format", "float"),
     )
 
+    started = time.monotonic()
+    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_EMBEDDING)
+
     try:
+        await aenforce_budget(organization, user, model)
         response = await litellm.aembedding(**litellm_kwargs)
+        await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string, call_type="embedding"), started_at=started)
         return JsonResponse(response.model_dump())
     except Exception as e:
+        if not isinstance(e, BudgetExceeded):
+            await arecord_usage(**accounting, started_at=started, error=e)
         return litellm_error_response(e, model=model)
 
 

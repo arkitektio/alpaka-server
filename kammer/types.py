@@ -6,7 +6,7 @@ from typing import Annotated, Any, Dict, ForwardRef, List, Literal, Optional, Un
 import strawberry
 import strawberry_django
 from kante.types import Info
-from kammer import enums, filters, models, scalars
+from kammer import filters, models
 from authentikate.strawberry.types import Client, Organization, User
 from strawberry import scalars
 from .type_gen import create_stats_type

@@ -18,16 +18,13 @@ from .configuration import Settings
 BASE_DIR = Path(__file__).resolve().parent.parent
 conf = Settings()
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-6vh8x**%4mm0yxjbghipsalf5$wum10_satqhxg$vo9jninehx"
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS: list[str] = ["*"]
+# Everything security-relevant comes from the validated config (see
+# alpaka_server/configuration.py and CONFIG.md); nothing is hard-coded here.
+SECRET_KEY = conf.django.secret_key
+DEBUG = conf.django.debug
+ALLOWED_HOSTS: list[str] = list(conf.django.hosts)
+USE_X_FORWARDED_HOST = conf.django.use_x_forwarded_host
+CSRF_TRUSTED_ORIGINS: list[str] = list(conf.django.csrf_trusted_origins)
 
 
 # Application definition
@@ -58,8 +55,6 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = "authentikate.User"
 
-
-GRAPHENE = {"SCHEMA": "core.schema.schema"}
 
 CHANNEL_LAYERS = {
     "default": {
@@ -97,6 +92,12 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "alpaka_server.urls"
+
+# Consumed by kante's ``dynamicpath``/``re_dynamicpath`` (see urls.py and
+# kante.router), which prefix every URL pattern themselves because channels'
+# URLRouter matches the raw scope["path"]. Deliberately NOT Django's
+# FORCE_SCRIPT_NAME: Django would strip the prefix from path_info while the
+# patterns still carry it, so nothing would match.
 MY_SCRIPT_NAME = conf.django.force_script_name
 
 TEMPLATES = [
@@ -201,3 +202,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 PROVIDER_PARTNERS = [p.model_dump(mode="json") for p in conf.provider_partners]
+
+# Superuser provisioned by ``manage.py ensureadmin`` (run.sh). Stored as a plain
+# dict because Django settings only expose UPPERCASE names; the command
+# re-validates it, the same way ensurepartners does for PROVIDER_PARTNERS.
+DJANGO_ADMIN = conf.django.admin.model_dump() if conf.django.admin else None

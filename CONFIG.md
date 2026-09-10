@@ -104,7 +104,7 @@ Secret fields are flagged with 🔒. "Required" means there is no default.
 | `use_x_forwarded_host` | `DJANGO__USE_X_FORWARDED_HOST` | bool | `true` | Trust the `X-Forwarded-Host` header behind a reverse proxy. |
 | `admin` | `DJANGO__ADMIN__*` | object | `null` | Superuser provisioned on first boot (see below). |
 | `csrf_trusted_origins` | `DJANGO__CSRF_TRUSTED_ORIGINS` | list[str] | `["http://localhost", "https://localhost"]` | `CSRF_TRUSTED_ORIGINS` for unsafe (POST) requests. |
-| `force_script_name` | `DJANGO__FORCE_SCRIPT_NAME` | str | `""` | URL path prefix this service is served under (`FORCE_SCRIPT_NAME`). |
+| `force_script_name` | `DJANGO__FORCE_SCRIPT_NAME` | str | `""` | URL path prefix this service is served under. Applied to every route by kante's `dynamicpath`; deliberately not Django's `FORCE_SCRIPT_NAME`. |
 
 #### `django.admin` — superuser created on first boot
 
@@ -197,6 +197,37 @@ ollama_url: http://ollama:11434
 chroma_db_host: chromadb
 chroma_db_port: 8000
 ```
+
+#### `providers` — shorthand for auto-configured partners
+
+Most deployments do not need the full `provider_partners` form. A top-level `providers`
+list (YAML only; lists cannot be expressed as environment variables) is folded into
+`provider_partners` at load time:
+
+| Key | Env var | Type | Default | Description |
+|---|---|---|---|---|
+| `providers` | — (use YAML) | list[map] | `[]` | Shorthand `kind: api_key` pairs, each becoming an auto-configured partner. |
+
+```yaml
+providers:
+  - openrouter: "sk-or-..."   # -> name/identifier/kind "openrouter", auto_configure: true
+    openai: "sk-..."
+  - identifier: corp          # entries carrying `identifier` are full partners, passed through unchanged
+    name: Corp
+    kind: openai
+    api_key: "sk-..."
+    auto_configure: true
+```
+
+Rules:
+
+- Every `<kind>: <api_key>` pair becomes a partner with `name = identifier = kind` and
+  `auto_configure: true`, so it is provisioned for every organization.
+- Keys with a null or non-string value (e.g. a bare `organization:`) are skipped, as are
+  list entries that are not mappings.
+- An entry carrying `identifier` is treated as a complete `provider_partners` entry
+  (note that `auto_configure` then defaults to `false`).
+- If `provider_partners` is also set, `providers` is ignored entirely.
 
 ---
 

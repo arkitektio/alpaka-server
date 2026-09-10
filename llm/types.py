@@ -1,6 +1,12 @@
+import datetime
+import decimal
+
 import strawberry
 from typing import Annotated, Optional, List
 from strawberry.types import Info
+from authentikate.strawberry.types import Client, User
+from kammer.type_gen import create_stats_type
+from kammer.types import build_prescoper
 from llm import models, enums, filters, scalars as llmscalars
 from llm.redaction import redact_config
 import strawberry_django
@@ -160,3 +166,109 @@ class DefaultUse:
     id: strawberry.ID
     model: "LLMModel"
     kind: str
+
+
+# --- USAGE AND BUDGETS ---
+
+
+@strawberry_django.type(models.UsageRecord, description="One LLM call, as recorded by the gateway", filters=filters.UsageRecordFilter, ordering=filters.UsageRecordOrder, pagination=True)
+class UsageRecord:
+    """A recorded LLM call."""
+
+    @classmethod
+    def get_queryset(cls, queryset, info, **kwargs):
+        """Restrict every read of this type to the request's organization."""
+        return queryset.filter(organization=info.context.request.organization)
+
+    id: strawberry.ID
+    user: Optional[User]
+    client: Optional[Client]
+    model: Optional[LLMModel]
+    provider_kind: str
+    model_identifier: str = strawberry_django.field(description="The provider-side model id at the time of the call")
+    llm_string: str
+    endpoint: enums.UsageEndpoint
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost: Optional[decimal.Decimal]
+    latency_ms: Optional[int]
+    status: enums.UsageStatus
+    error_type: str
+    created_at: datetime.datetime
+
+
+UsageStats, UsageStatsResolver = create_stats_type(
+    model=models.UsageRecord,
+    filters=filters.UsageRecordFilter,
+    allowed_fields={
+        "prompt_tokens": "prompt_tokens",
+        "completion_tokens": "completion_tokens",
+        "total_tokens": "total_tokens",
+        "cost": "cost",
+        "latency_ms": "latency_ms",
+    },
+    allowed_datetime_fields={"created_at": "created_at"},
+    type_name="UsageStats",
+    enum_name="UsageField",
+    dt_enum_name="UsageTimestampField",
+    prescope=build_prescoper(field="organization"),
+)
+
+
+@strawberry.type(description="How much of a budget is used in the current period")
+class BudgetStatus:
+    """Current-period consumption of a budget."""
+
+    period_start: datetime.datetime
+    period_end: datetime.datetime
+    used_tokens: int
+    used_cost: decimal.Decimal
+    limit_tokens: Optional[int]
+    limit_cost: Optional[decimal.Decimal]
+    remaining_tokens: Optional[int]
+    remaining_cost: Optional[decimal.Decimal]
+    exceeded: bool
+
+
+def budget_status_of(budget: models.Budget) -> BudgetStatus:
+    """Compute the current-period status of one budget."""
+    from llm.usage import consumption_for
+
+    consumption = consumption_for([budget])[0]
+    return BudgetStatus(
+        period_start=consumption.period_start,
+        period_end=consumption.period_end,
+        used_tokens=consumption.used_tokens,
+        used_cost=consumption.used_cost,
+        limit_tokens=budget.limit_tokens,
+        limit_cost=budget.limit_cost,
+        remaining_tokens=consumption.remaining_tokens,
+        remaining_cost=consumption.remaining_cost,
+        exceeded=consumption.exceeded,
+    )
+
+
+@strawberry_django.type(models.Budget, description="A cap on LLM consumption per period", filters=filters.BudgetFilter, ordering=filters.BudgetOrder, pagination=True)
+class Budget:
+    """A budget on LLM usage."""
+
+    @classmethod
+    def get_queryset(cls, queryset, info, **kwargs):
+        """Restrict every read of this type to the request's organization."""
+        return queryset.filter(organization=info.context.request.organization)
+
+    id: strawberry.ID
+    user: Optional[User] = strawberry_django.field(description="The user this budget is restricted to, or null for the whole organization")
+    model: Optional[LLMModel] = strawberry_django.field(description="The model this budget is restricted to, or null for every model")
+    period: enums.BudgetPeriod
+    limit_tokens: Optional[int]
+    limit_cost: Optional[decimal.Decimal]
+    hard: bool
+    creator: Optional[User]
+    created_at: datetime.datetime
+
+    @strawberry_django.field(description="How much of this budget is used in the current period")
+    def status(self) -> BudgetStatus:
+        """Current-period consumption."""
+        return budget_status_of(self)

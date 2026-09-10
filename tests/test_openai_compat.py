@@ -44,6 +44,10 @@ async def _fake_model_lookup(*args, **kwargs):
     return FAKE_MODEL
 
 
+async def _noop(*args, **kwargs):
+    return None
+
+
 def _mock_litellm(monkeypatch, *, text="Hello world from mock", error=None):
     """Patch the litellm entry points used by the views to return canned,
     OpenAI-shaped output via ``mock_response`` (or raise ``error``)."""
@@ -71,6 +75,10 @@ def client(monkeypatch):
     monkeypatch.setattr(views, "authenticate_request", _fake_auth)
     monkeypatch.setattr(views, "get_model_by_id_or_name", _fake_model_lookup)
     monkeypatch.setattr(views, "get_default_model", _fake_model_lookup)
+    # Usage accounting and budgets need the database; tests/test_usage.py
+    # covers them with real rows.
+    monkeypatch.setattr(views, "aenforce_budget", _noop)
+    monkeypatch.setattr(views, "arecord_usage", _noop)
     http_client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver"
     )

@@ -29,9 +29,9 @@ class QueryInput:
     """A query input for a large language model."""
 
     collection: strawberry.ID
-    query_texts: List[str]
-    n_results: int = 3
-    where: Optional[scalars.JSON] = None
+    query_texts: List[str] = strawberry.field(description="One or more query texts; the union of their results is returned, deduplicated by document")
+    n_results: int = strawberry.field(default=3, description="Results per query text")
+    where: Optional[scalars.JSON] = strawberry.field(default=None, description="Chroma metadata filter applied to every query")
 
 
 @strawberry.input(description="Documents to add to an existing collection")
