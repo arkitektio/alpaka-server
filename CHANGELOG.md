@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v2.0.0-rc.11 (2026-09-11)
+
+### Features
+
+- Streaming
+  ([`5e24852`](https://github.com/arkitektio/alpaka-server/commit/5e24852dbca6ee406c6e13fd6fa6bbc29509ecec))
+
+
 ## v2.0.0-rc.10 (2026-09-10)
 
 ### Features
