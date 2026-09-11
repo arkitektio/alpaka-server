@@ -7,7 +7,7 @@ import strawberry
 from kante.types import Info
 
 from kammer import models, types
-from kammer.channels import MessageSignal, message_channel, room_group
+from kammer.channels import MessageSignal, listen_to_room, message_channel, room_group
 from kammer.enums import RoomEventKind
 
 logger = logging.getLogger(__name__)
@@ -44,15 +44,17 @@ async def room(
 
     # Announced before listen() registers this subscriber with the group, so
     # the joiner never sees its own JOIN.
-    await message_channel.abroadcast(MessageSignal(kind=RoomEventKind.JOIN, agent=agent.id), [group])
+    await message_channel.abroadcast(MessageSignal(kind=RoomEventKind.JOIN, room=room_model.id, agent=agent.id), [group])
     try:
-        async for signal in message_channel.listen(info, [group]):
+        # listen_to_room, not message_channel.listen: it scopes the events to this
+        # room and refcounts the group membership, so several room subscriptions can
+        # share one websocket. See kammer.channels.listen_to_room.
+        async for signal in listen_to_room(info, room_model.id):
             if signal.kind in (RoomEventKind.JOIN, RoomEventKind.LEAVE):
                 if not signal.agent or signal.agent == agent.id:
                     continue
                 try:
-                    # Same room, and the room was scoped above.
-                    other = await models.Agent.objects.for_write().aget(id=signal.agent)
+                    other = await models.Agent.objects.for_write().aget(id=signal.agent, room=room_model)
                 except models.Agent.DoesNotExist:
                     continue
                 if signal.kind == RoomEventKind.JOIN:
@@ -64,9 +66,15 @@ async def room(
             if not signal.message:
                 continue
 
-            # The channel is per-room and the room was scoped above, so every id
-            # arriving here already belongs to the caller's organization.
-            message = await models.Message.objects.for_write().select_related("agent").aget(id=signal.message)
+            try:
+                # The signal was matched to this room above, and the room was scoped
+                # to the caller's organization, so this id is safe to fetch.
+                message = await models.Message.objects.for_write().select_related("agent").aget(id=signal.message, room=room_model)
+            except models.Message.DoesNotExist:
+                # Deleted between the broadcast and here (deleting a room cascades to
+                # its messages). Skip it, like the JOIN/LEAVE branch does -- letting it
+                # raise would tear down the whole subscription.
+                continue
             if filter_own and message.agent_id == agent.id:
                 continue
 
@@ -76,6 +84,6 @@ async def room(
         # legal for an async generator as long as nothing is yielded; guarded so
         # a dying event loop cannot mask the exit.
         try:
-            await message_channel.abroadcast(MessageSignal(kind=RoomEventKind.LEAVE, agent=agent.id), [group])
+            await message_channel.abroadcast(MessageSignal(kind=RoomEventKind.LEAVE, room=room_model.id, agent=agent.id), [group])
         except BaseException:
             logger.debug("Could not broadcast leave for agent %s", agent.id, exc_info=True)

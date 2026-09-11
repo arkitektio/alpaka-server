@@ -19,6 +19,7 @@ Design rules:
 
 import contextlib
 import datetime as dt
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -192,9 +193,18 @@ def record_usage(
         provider = getattr(model, "provider", None)
         kind = getattr(provider, "kind", "") or ""
         error_type = ""
+        status = UsageStatus.OK
         if error is not None:
-            cause = error.__cause__ or error
-            error_type = type(cause).__name__[:128]
+            if isinstance(error, (asyncio.CancelledError, GeneratorExit)):
+                # The client hung up mid-stream. The tokens were spent, so the row
+                # still counts toward budgets, but this is not a provider failure --
+                # recording it as one made every user-cancelled stream look like an
+                # outage.
+                status = UsageStatus.ABORTED
+            else:
+                status = UsageStatus.ERROR
+                cause = error.__cause__ or error
+                error_type = type(cause).__name__[:128]
         return UsageRecord.objects.for_write().create(
             organization=organization,
             user=_instance_or_none(user, User),
@@ -209,7 +219,7 @@ def record_usage(
             total_tokens=max(facts.total_tokens, 0),
             cost=facts.cost,
             latency_ms=latency_ms,
-            status=UsageStatus.ERROR.value if error is not None else UsageStatus.OK.value,
+            status=status.value,
             error_type=error_type,
         )
     except Exception:

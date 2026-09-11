@@ -10,7 +10,7 @@ from channels.testing import WebsocketCommunicator
 from authentikate.models import Organization
 from kammer import consumers
 from kammer import models as kammer_models
-from tests.test_streaming import START, history_count, load_message, subscribe
+from tests.test_streaming import FINISH, START, history_count, load_message, subscribe
 
 APP = consumers.MessageStreamConsumer.as_asgi()
 
@@ -169,3 +169,96 @@ async def test_subscribers_see_socket_streamed_updates(ws_contexts, monkeypatch)
 
     await communicator.disconnect()
     await listener.close()
+
+
+# --- failure handling --------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_disconnect_flushes_but_does_not_finish_an_adopted_message(aexecute, authenticated_context, monkeypatch):
+    """A message opened with ``startMessage`` belongs to the caller that opened it.
+
+    The socket writes to it, and a drop flushes what arrived -- but closing it here
+    would make the opener's own ``finishMessage`` fail as "already finished"."""
+    monkeypatch.setattr(consumers, "FLUSH_INTERVAL_SECONDS", 5)
+    room = await make_room()
+    started = await aexecute(START, {"input": {"room": str(room.id), "agentId": "writer"}})
+    message_id = int(started.data["startMessage"]["id"])
+
+    communicator = await connect()
+    await communicator.send_json_to({"type": "append", "message": message_id, "delta": "adopted"})
+    await asyncio.sleep(0.05)
+    await communicator.disconnect()
+
+    row = await load_message(message_id)
+    assert row.text == "adopted" and row.is_streaming is True
+
+    finished = await aexecute(FINISH, {"input": {"message": str(message_id)}})
+    assert finished.data, finished.errors
+    assert finished.data["finishMessage"]["isStreaming"] is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_failing_write_keeps_the_delta_and_retries_it(authenticated_context, monkeypatch):
+    """A delta whose write fails must survive to the next flush.
+
+    ``append_delta`` is stubbed one layer *below* the code under test (the consumer's
+    buffering), not the consumer itself -- a database blip is otherwise unstageable.
+    """
+    real_append = consumers.streaming.append_delta
+    calls = {"n": 0}
+
+    def flaky(message_id, delta):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("database went away")
+        return real_append(message_id, delta)
+
+    monkeypatch.setattr(consumers.streaming, "append_delta", flaky)
+    monkeypatch.setattr(consumers, "FLUSH_INTERVAL_SECONDS", 0.02)
+
+    room = await make_room()
+    communicator = await connect()
+    await communicator.send_json_to({"type": "start", "room": str(room.id), "agent_id": "writer"})
+    message_id = (await communicator.receive_json_from())["message"]
+
+    await communicator.send_json_to({"type": "append", "message": message_id, "delta": "lost?"})
+    error = await communicator.receive_json_from()
+    assert error["type"] == "error" and "retried" in error["detail"]
+    assert (await load_message(message_id)).text == ""
+
+    # The retained delta rides along with the next one, in order.
+    await communicator.send_json_to({"type": "append", "message": message_id, "delta": " no"})
+    await communicator.send_json_to({"type": "finish", "message": message_id})
+    assert (await communicator.receive_json_from())["text"] == "lost? no"
+    await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_malformed_frames_are_errors_not_disconnects(authenticated_context):
+    """A bad frame is answered, never dropped: the socket may be streaming other
+    messages successfully at the time."""
+    room = await make_room()
+    communicator = await connect()
+
+    for frame in (
+        {"type": "start"},                                       # KeyError: room
+        {"type": "append", "message": {}, "delta": "x"},         # TypeError: int({})
+        {"type": "append", "message": "abc", "delta": "x"},      # ValueError: int("abc")
+        {"type": "finish"},                                      # KeyError: message
+        {"type": "wat"},                                         # unknown type
+        ["not", "an", "object"],                                 # not a mapping at all
+    ):
+        await communicator.send_json_to(frame)
+        assert (await communicator.receive_json_from())["type"] == "error"
+
+    # The same socket still works.
+    await communicator.send_json_to({"type": "start", "room": str(room.id), "agent_id": "writer"})
+    message_id = (await communicator.receive_json_from())["message"]
+    await communicator.send_json_to({"type": "append", "message": message_id, "delta": "fine"})
+    await communicator.send_json_to({"type": "finish", "message": message_id})
+    assert (await communicator.receive_json_from())["text"] == "fine"
+    await communicator.disconnect()

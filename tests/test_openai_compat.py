@@ -11,6 +11,7 @@ Needs Django configured (``DJANGO_SETTINGS_MODULE``) but no database; run with
 ``uv run pytest tests/test_openai_compat.py``.
 """
 
+import copy
 import types
 
 import httpx
@@ -203,3 +204,163 @@ async def test_sdk_params_pass_through_but_reserved_keys_do_not(client, monkeypa
     assert seen["api_base"] == FAKE_PROVIDER.api_base
     assert seen["api_key"] == FAKE_PROVIDER.api_key
     assert "custom_llm_provider" not in seen
+
+
+@pytest.mark.asyncio
+async def test_custom_pricing_never_reaches_litellm(client, monkeypatch):
+    """The harm, not just the mechanism.
+
+    ``input_cost_per_token``/``output_cost_per_token`` make litellm call
+    ``register_model``, which writes the *process-global* ``litellm.model_cost``
+    map -- so a caller could zero its own recorded cost (defeating the cost budgets
+    in ``llm.usage``) and re-price that model for every other organization sharing
+    the worker. Asserting on the map survives any future refactor of the key set.
+    """
+    before = copy.deepcopy(litellm.model_cost.get("openrouter/gpt-4"))
+    seen = {}
+    orig = litellm.acompletion
+
+    async def spy(**kw):
+        seen.update(kw)
+        kw["mock_response"] = "ok"
+        return await orig(**kw)
+
+    monkeypatch.setattr(views.litellm, "acompletion", spy)
+    await client.chat.completions.create(
+        model="x",
+        messages=[{"role": "user", "content": "hi"}],
+        extra_body={"input_cost_per_token": 0, "output_cost_per_token": 0},
+    )
+
+    assert "input_cost_per_token" not in seen and "output_cost_per_token" not in seen
+    assert litellm.model_cost.get("openrouter/gpt-4") == before
+
+
+@pytest.mark.parametrize("key,value", [
+    ("mock_response", "free lunch"),
+    ("num_retries", 50),
+    ("fallbacks", [{"model": "someone/elses-model"}]),
+    ("model_list", [{"model_name": "x"}]),
+    ("caching", True),
+    ("headers", {"x-smuggled": "1"}),
+])
+@pytest.mark.asyncio
+async def test_litellm_control_params_are_not_forwarded(client, monkeypatch, key, value):
+    """litellm accepts ~190 control kwargs; the tunnel forwards request params only."""
+    seen = {}
+    orig = litellm.acompletion
+
+    async def spy(**kw):
+        seen.update(kw)
+        kw["mock_response"] = "ok"
+        return await orig(**kw)
+
+    monkeypatch.setattr(views.litellm, "acompletion", spy)
+    await client.chat.completions.create(model="x", messages=[{"role": "user", "content": "hi"}], extra_body={key: value})
+    assert key not in seen
+
+
+def test_the_reserved_key_set_has_not_drifted():
+    """``all_litellm_params`` and ``OPENAI_CHAT_COMPLETION_PARAMS`` are litellm
+    internals: a version bump can move a key between them silently."""
+    forwarded = {"tools", "tool_choice", "response_format", "stream_options", "seed",
+                 "logprobs", "max_completion_tokens", "parallel_tool_calls", "reasoning_effort"}
+    assert forwarded & views.RESERVED_LITELLM_KEYS == set()
+
+    blocked = {"api_key", "api_base", "base_url", "api_version", "extra_headers",
+               "default_headers", "headers", "organization", "deployment_id", "max_retries",
+               "input_cost_per_token", "output_cost_per_token", "mock_response",
+               "fallbacks", "model_list", "caching", "num_retries"}
+    assert blocked <= views.RESERVED_LITELLM_KEYS
+
+
+@pytest.mark.asyncio
+async def test_tool_calling_still_tunnels(client, monkeypatch):
+    """The reserved set must not cost the tunnel its actual job."""
+    seen = {}
+    orig = litellm.acompletion
+
+    async def spy(**kw):
+        seen.update(kw)
+        kw["mock_response"] = "ok"
+        return await orig(**kw)
+
+    monkeypatch.setattr(views.litellm, "acompletion", spy)
+    tools = [{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object", "properties": {}}}}]
+    await client.chat.completions.create(model="x", messages=[{"role": "user", "content": "hi"}], tools=tools, tool_choice="auto")
+    assert seen["tools"] == tools and seen["tool_choice"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_a_mid_stream_error_still_terminates_with_done(monkeypatch):
+    """The status line is already 200 by then, so the error frame is all the client
+    gets -- and without the sentinel a client looping until ``[DONE]`` hangs."""
+    monkeypatch.setattr(views, "authenticate_request", _fake_auth)
+    monkeypatch.setattr(views, "get_model_by_id_or_name", _fake_model_lookup)
+    monkeypatch.setattr(views, "get_default_model", _fake_model_lookup)
+    monkeypatch.setattr(views, "aenforce_budget", _noop)
+    monkeypatch.setattr(views, "arecord_usage", _noop)
+
+    class _Exploding:
+        def __init__(self):
+            self.sent = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self.sent:
+                raise RuntimeError("upstream died mid-stream")
+            self.sent = True
+            return types.SimpleNamespace(model_dump=lambda: {"id": "c", "choices": [{"index": 0, "delta": {"content": "hi"}}]})
+
+    async def spy(**kw):
+        return _Exploding()
+
+    monkeypatch.setattr(views.litellm, "acompletion", spy)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver") as http:
+        response = await http.post(
+            "/llm/v1/chat/completions",
+            json={"model": "x", "messages": [{"role": "user", "content": "hi"}], "stream": True},
+            headers={"Authorization": "Bearer test"},
+        )
+    frames = [line for line in response.text.splitlines() if line.startswith("data: ")]
+    assert "upstream died mid-stream" in frames[-2]
+    assert frames[-1] == "data: [DONE]"
+
+
+@pytest.mark.asyncio
+async def test_a_non_object_body_is_a_400_not_a_500(monkeypatch):
+    monkeypatch.setattr(views, "authenticate_request", _fake_auth)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver") as http:
+        # ``null`` parses fine and then reached ``"messages" not in payload`` as a
+        # TypeError -- Django's HTML 500, not an OpenAI-shaped error body. Sent as
+        # raw content because httpx reads ``json=None`` as "no body at all".
+        response = await http.post(
+            "/llm/v1/chat/completions",
+            content=b"null",
+            headers={"Authorization": "Bearer test", "Content-Type": "application/json"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["type"] == "invalid_request_error"
+
+
+@pytest.mark.asyncio
+async def test_streamed_completions_ask_the_upstream_for_usage(client, monkeypatch):
+    """Without ``include_usage`` a streamed ``/v1/completions`` can only ever be
+    counted with a tiktoken estimate, so cost budgets under-count it."""
+    seen = {}
+    orig = litellm.atext_completion
+
+    async def spy(**kw):
+        seen.update(kw)
+        kw["mock_response"] = "hello"
+        return await orig(**kw)
+
+    monkeypatch.setattr(views.litellm, "atext_completion", spy)
+    stream = await client.completions.create(model="x", prompt="hi", stream=True)
+    async for _ in stream:
+        pass
+    assert seen["stream_options"] == {"include_usage": True}
+    assert seen["drop_params"] is True

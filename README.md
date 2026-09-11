@@ -43,6 +43,13 @@ GraphQL overhead. The server coalesces deltas and writes at most every 100 ms.
 ```
 
 Only the user and client that started a message may write to it; finished messages are
-immutable. A message opened on a socket that drops is finished with whatever had arrived.
+immutable. A message *opened on* a socket that drops is finished with whatever had
+arrived; one opened with `startMessage` and merely continued over the socket is flushed
+but left open, because the caller that opened it still owns its lifecycle and can finish
+it after reconnecting.
+
 Subscribers of the `room` subscription receive `MESSAGE_CREATED`, `MESSAGE_UPDATED` and
-`MESSAGE_FINISHED` events either way.
+`MESSAGE_FINISHED` events either way. Events are scoped per room and the group membership
+is refcounted per connection, so a client may watch several rooms over one websocket:
+subscriptions no longer cross-feed each other, and closing one does not silence the rest.
+There is no backfill — a subscription only sees what happens after it joins.

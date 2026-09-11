@@ -93,7 +93,7 @@ def finish_message(message: models.Message, *, text: Optional[str] = None, struc
 
 def signal_for(kind: RoomEventKind, message: models.Message) -> tuple[MessageSignal, list[str]]:
     """The channel payload and group announcing ``kind`` for ``message``."""
-    return MessageSignal(kind=kind, message=message.id), [room_group(message.room_id)]
+    return MessageSignal(kind=kind, room=message.room_id, message=message.id), [room_group(message.room_id)]
 
 
 def announce(kind: RoomEventKind, message: models.Message) -> None:

@@ -23,4 +23,4 @@ def message_signal(sender, instance=None, created=False, **kwargs):
     if not instance or not created:
         return
     logger.debug("Broadcasting message %s to room %s", instance.id, instance.room_id)
-    message_channel.broadcast_on_commit(MessageSignal(kind=RoomEventKind.MESSAGE_CREATED, message=instance.id), [room_group(instance.room_id)])
+    message_channel.broadcast_on_commit(MessageSignal(kind=RoomEventKind.MESSAGE_CREATED, room=instance.room_id, message=instance.id), [room_group(instance.room_id)])

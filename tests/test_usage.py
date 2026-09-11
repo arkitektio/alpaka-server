@@ -5,6 +5,8 @@ embedding) writes a ``UsageRecord``; ``usageRecords``/``usageStats``/``budgets``
 are organization-scoped; a spent hard ``Budget`` blocks calls with a 429
 (REST) or a GraphQL error."""
 
+import asyncio
+import contextlib
 import datetime as dt
 from decimal import Decimal
 
@@ -23,12 +25,14 @@ import vector.embedding as vector_embedding
 from authentikate.models import Organization, User
 from llm import models as llm_models
 from llm.enums import BudgetPeriod
-from llm.usage import period_end, period_start
+from llm.usage import UsageFacts, arecord_usage, period_end, period_start
 
 ASGI_APP = get_asgi_application()
 # The package re-exports the ``chat`` resolver under the submodule's name, so
 # attribute access would yield the function; import the module explicitly.
 chat_mutation = importlib.import_module("llm.graphql.mutations.chat")
+
+from tests.test_openai_compat import _mock_litellm  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -405,3 +409,108 @@ def test_period_boundaries():
     assert period_end(BudgetPeriod.WEEK, now) == dt.datetime(2026, 9, 14, tzinfo=dt.timezone.utc)
     assert period_start("month", now) == dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc)
     assert period_end("month", dt.datetime(2026, 12, 31, tzinfo=dt.timezone.utc)) == dt.datetime(2027, 1, 1, tzinfo=dt.timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Aborted streams
+# ---------------------------------------------------------------------------
+
+
+class _StubChunk:
+    """The bit of a litellm chunk ``_streaming_response`` touches."""
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+    def model_dump(self) -> dict:
+        return {"id": "chunk", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": self.content}}]}
+
+
+class _StubStream:
+    """An upstream stream that stalls after its first chunk, and notices closing.
+
+    The stall is the point: a client disconnect has to arrive while the view is
+    suspended on the upstream, which is the only moment the cancellation lands
+    inside the generator's ``finally``.
+    """
+
+    def __init__(self) -> None:
+        self.first_chunk_sent = asyncio.Event()
+        self.closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self.first_chunk_sent.is_set():
+            self.first_chunk_sent.set()
+            return _StubChunk("hello")
+        await asyncio.Event().wait()  # never resolves; the client gives up first
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_client_that_hangs_up_records_usage_as_aborted_and_closes_the_upstream(authenticated_context):
+    """A user-cancelled stream is not a provider failure.
+
+    It used to be recorded as ``status=error, error_type=GeneratorExit``, which made
+    every "stop generating" look like an outage; and the upstream connection was
+    left for the garbage collector to close."""
+    data = await seed()
+    stream = _StubStream()
+    recorded = asyncio.Event()
+
+    async def on_complete(chunks, error):
+        # A thread hop, like the real callback's sync_to_async: this is the await
+        # that used to re-raise the cancellation.
+        await arecord_usage(
+            organization=data["org"],
+            model=data["chat"],
+            endpoint="rest_chat",
+            facts=UsageFacts(prompt_tokens=3, completion_tokens=4, total_tokens=7),
+            error=error,
+        )
+        recorded.set()
+
+    response = views._streaming_response(stream, on_complete=on_complete)
+
+    # What Django does when the client hangs up: it cancels the task driving the
+    # response (django/core/handlers/asgi.py), which lands as a CancelledError
+    # inside the view's generator while it waits on the upstream.
+    async def consume():
+        async for _ in response.streaming_content:
+            pass
+
+    task = asyncio.create_task(consume())
+    await stream.first_chunk_sent.wait()
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.wait_for(recorded.wait(), timeout=5)
+    rows = await records(data["org"])
+    assert len(rows) == 1
+    assert rows[0].status == "aborted"
+    assert rows[0].error_type == ""
+    assert rows[0].total_tokens == 7
+    # ...and the upstream connection is released rather than left to the collector.
+    assert stream.closed is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_an_upstream_failure_is_still_recorded_as_an_error(rest, monkeypatch):
+    """The negative control for the classifier above."""
+    client, data = rest
+    _mock_litellm(monkeypatch, error=litellm.exceptions.APIError(status_code=500, message="boom", llm_provider="openai", model="gpt-4o-mini"))
+
+    with pytest.raises(openai.APIStatusError):
+        await client.chat.completions.create(model="x", messages=[{"role": "user", "content": "hi"}])
+
+    rows = await records(data["org"])
+    # One row per attempt: the OpenAI SDK retries a 500 on its own.
+    assert rows and all(r.status == "error" and r.error_type == "APIError" for r in rows)

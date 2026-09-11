@@ -25,8 +25,10 @@ Server → client
 
 Ownership rules are those of the GraphQL mutations (same user and client as
 the agent that started the message; finished messages are immutable). A message
-started on a connection that drops is finished with whatever had arrived, so a
-crashed client never leaves a message open.
+*started on this connection* is finished with whatever had arrived when the
+connection drops, so a crashed client never leaves its own message open. One
+adopted from ``startMessage`` is flushed but left open: the caller that opened it
+still owns its lifecycle and can finish it after reconnecting.
 """
 
 import asyncio
@@ -80,8 +82,15 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
             await self._authenticate(token)
 
     async def disconnect(self, code: int) -> None:
-        # Flush what arrived, then close anything this connection opened so a
+        # Flush what arrived, then close anything this connection *opened* so a
         # crashed client never leaves a message streaming forever.
+        #
+        # Deliberately only what it opened: a message adopted from ``startMessage``
+        # still belongs to the caller that opened it, which can finish it after
+        # reconnecting. Closing it here would turn a network blip into a hard error
+        # -- their own ``finishMessage`` would then fail as "already finished" --
+        # and would let one socket close a message another socket of the same
+        # user+client is still writing to. Its text is flushed either way.
         for message_id in list(self.streams):
             stream = self.streams.get(message_id)
             if stream is None:
@@ -97,7 +106,12 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
     # --- frames -----------------------------------------------------------
 
     async def receive_json(self, content: Any, **kwargs: Any) -> None:
-        kind = content.get("type") if isinstance(content, dict) else None
+        if not isinstance(content, dict):
+            # A JSON frame that is not an object at all; every handler below (and
+            # every error path) assumes a mapping.
+            await self._error("Frames must be JSON objects")
+            return
+        kind = content.get("type")
         if kind == "auth":
             await self._authenticate(str(content.get("token", "")))
             return
@@ -116,8 +130,19 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
                 await self._error(f"Unknown frame type {kind!r}")
         except (models.Room.DoesNotExist, models.Message.DoesNotExist):
             await self._error("No such room or message", message=content.get("message"))
-        except (PermissionError, ValueError) as e:
+        except KeyError as e:
+            # A frame missing ``room``/``message``. Answering keeps the protocol's
+            # promise that a bad frame is an error event, not a dropped connection.
+            await self._error(f"Missing field {e.args[0]!r} in {kind!r} frame", message=content.get("message"))
+        except (PermissionError, ValueError, TypeError) as e:
+            # TypeError: a field of the wrong shape, e.g. ``"message": {}``.
             await self._error(str(e), message=content.get("message"))
+        except Exception:
+            # A write that failed for a reason of ours (the database, say). The
+            # buffered text is kept for the next flush; tell the writer rather than
+            # dropping the connection under it.
+            logger.exception("Could not handle %r frame", kind)
+            await self._error("Could not handle the frame", message=content.get("message"))
 
     async def _authenticate(self, token: str) -> None:
         try:
@@ -169,10 +194,16 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
 
     async def _finish_frame(self, content: dict) -> None:
         message_id = int(content["message"])
+        text = content.get("text")
         stream = await self._stream_for(message_id)
         await self._flush(message_id)
+        if stream.buffer and text is None:
+            # The flush failed and the text is still buffered. Closing now would
+            # make the failure permanent; the error frame is already out, so let
+            # the writer retry finish (or send the authoritative full text).
+            return
         if message_id in self.streams:
-            await self._finish(stream, text=content.get("text"))
+            await self._finish(stream, text=text)
 
     # --- writing ------------------------------------------------------------
 
@@ -181,7 +212,15 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
         stream = self.streams.get(message_id)
         if stream is not None:
             stream.flush_task = None
-        await self._flush(message_id)
+        try:
+            await self._flush(message_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Nothing retrieves this task's result, so an exception here would
+            # vanish: the writer would never learn its text was not written.
+            logger.exception("Scheduled flush of message %s failed", message_id)
+            await self._error("Could not write the buffered text", message=message_id)
 
     async def _flush(self, message_id: int) -> None:
         """Write the buffered deltas in one UPDATE and announce the change."""
@@ -192,12 +231,24 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
             stream.flush_task.cancel()
             stream.flush_task = None
         async with stream.lock:
-            delta = "".join(stream.buffer)
-            stream.buffer.clear()
-            stream.buffered_chars = 0
-            if not delta:
+            if not stream.buffer:
                 return
-            if await sync_to_async(streaming.append_delta)(message_id, delta) == 0:
+            # Snapshot rather than clear: if the write fails the deltas must still be
+            # in the buffer for the next flush. Clearing first lost them silently --
+            # the writer was never told, and the room saw only a gap.
+            consumed = len(stream.buffer)
+            delta = "".join(stream.buffer[:consumed])
+            try:
+                rows = await sync_to_async(streaming.append_delta)(message_id, delta)
+            except Exception:
+                logger.exception("Could not append to streamed message %s", message_id)
+                await self._error("Could not write this delta; it will be retried", message=message_id)
+                return
+            # By index, not clear(): ``_append`` may have extended the buffer while
+            # this coroutine was awaiting the write.
+            del stream.buffer[:consumed]
+            stream.buffered_chars -= len(delta)
+            if rows == 0:
                 # Finished elsewhere meanwhile; the delta is dropped.
                 self.streams.pop(message_id, None)
                 await self._error("This message is finished and cannot be modified", message=message_id)

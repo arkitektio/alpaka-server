@@ -15,7 +15,8 @@ from channels.layers import get_channel_layer
 from alpaka_server.schema import schema
 from authentikate.models import Organization
 from kammer import models as kammer_models
-from kammer.channels import room_group
+from kammer.channels import MessageSignal, message_channel, room_group
+from kammer.enums import RoomEventKind
 from kammer.streaming import append_delta as _append_delta
 
 START = "mutation($input: StartMessageInput!) { startMessage(input: $input) { id text isStreaming } }"
@@ -275,4 +276,77 @@ async def test_subscription_join_and_leave(ws_contexts):
     event = await first.next()
     assert event["kind"] == "LEAVE" and event["leave"] == {"name": "second"}
 
+    await first.close()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_two_rooms_on_one_connection_do_not_cross_feed(aexecute, ws_contexts):
+    """Group membership alone does not scope a subscription.
+
+    Strawberry's consumer fans a channel message to every listen queue of that
+    message type, ignoring groups, and the channel name is per-connection -- so a
+    client watching two rooms over one websocket used to receive the other room's
+    events on both subscriptions.
+    """
+    context = await ws_contexts()  # one consumer == one connection, two subscriptions
+    first_room = await make_room()
+    second_room = await make_room()
+    first = await subscribe(context, first_room, "listener")
+    second = await subscribe(context, second_room, "listener")
+
+    started = await start(aexecute, second_room, agent="writer")
+    event = await second.next()
+    assert event["kind"] == "MESSAGE_CREATED" and event["message"]["id"] == started["id"]
+
+    with pytest.raises(asyncio.TimeoutError):
+        await first.next(timeout=0.5)
+
+    await first.close()
+    await second.close()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_signal_for_a_deleted_message_does_not_kill_the_subscription(aexecute, ws_contexts):
+    """Deleting a room cascades to its messages; a signal already in flight for one
+    must be skipped, not raise out of the subscription's ``async for``."""
+    room = await make_room()
+    listener = await subscribe(await ws_contexts(), room, "listener")
+
+    started = await start(aexecute, room, agent="writer")
+    assert (await listener.next())["kind"] == "MESSAGE_CREATED"
+
+    ghost = await load_message(started["id"])
+    await sync_to_async(ghost.delete)()
+    await message_channel.abroadcast(
+        MessageSignal(kind=RoomEventKind.MESSAGE_UPDATED, room=room.id, message=ghost.id),
+        [room_group(room.id)],
+    )
+
+    # The subscription survives and still reports the next real event.
+    alive = await start(aexecute, room, agent="writer")
+    event = await listener.next()
+    assert event["kind"] == "MESSAGE_CREATED" and event["message"]["id"] == alive["id"]
+    await listener.close()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_closing_one_subscription_does_not_silence_a_sibling_on_the_same_room(aexecute, ws_contexts):
+    """``listen_to_channel(groups=...)`` discards with the per-*connection* channel
+    name, so closing one subscription used to remove the whole connection from the
+    room. ``listen_to_room`` refcounts the membership instead."""
+    context = await ws_contexts()
+    room = await make_room()
+    first = await subscribe(context, room, "first")
+    second = await subscribe(context, room, "second")
+    assert (await first.next())["kind"] == "JOIN"
+
+    await second.close()
+    assert (await first.next())["kind"] == "LEAVE"
+
+    started = await start(aexecute, room, agent="writer")
+    event = await first.next(timeout=1)
+    assert event["kind"] == "MESSAGE_CREATED" and event["message"]["id"] == started["id"]
     await first.close()

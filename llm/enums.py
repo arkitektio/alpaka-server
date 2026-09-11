@@ -113,6 +113,7 @@ class UsageStatus(str, Enum):
 
     OK = "ok"
     ERROR = "error"
+    ABORTED = "aborted"
 
 
 @strawberry.enum(description="The window a budget is measured over")

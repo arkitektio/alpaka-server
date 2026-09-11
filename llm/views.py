@@ -11,6 +11,7 @@ All endpoints are wrapped with authentication and access the correct
 model/tool parameters from the database.
 """
 
+import contextlib
 import json
 import time
 from typing import Any, AsyncGenerator, AsyncIterable, Awaitable, Callable, Optional, Union, Tuple
@@ -25,6 +26,8 @@ from authentikate.expand import (
 from authentikate.models import User, Organization
 import logging
 import litellm
+from litellm.constants import OPENAI_CHAT_COMPLETION_PARAMS, OPENAI_EMBEDDING_PARAMS
+from litellm.types.utils import all_litellm_params
 from asgiref.sync import sync_to_async
 from llm import models as llm_models
 from llm.enums import DefaultKind, UsageEndpoint
@@ -256,7 +259,13 @@ async def openai_models_view(request: HttpRequest) -> JsonResponse:
     except AuthenticationError as e:
         return create_openai_error_response(str(e), error_type="authentication_error", code="invalid_api_key", status=401)
 
-    models = await get_all_models_for_organization(organization)
+    try:
+        models = await get_all_models_for_organization(organization)
+    except Exception as e:
+        # Every other endpoint answers in the OpenAI error shape; an unguarded
+        # database error here returned Django's HTML 500 instead.
+        logger.exception("Could not list models")
+        return create_openai_error_response(f"Could not list models: {e}", error_type="api_error", status=500)
 
     return JsonResponse({"object": "list", "data": [model_to_openai_format(m) for m in models]})
 
@@ -282,6 +291,9 @@ async def openai_model_detail_view(request: HttpRequest, model_id: str) -> JsonR
         model = await get_model_by_id_or_name(model_id, organization, user)
     except DefaultModelNotConfiguredError as e:
         return create_openai_error_response(str(e), error_type="invalid_request_error", code="default_model_not_configured", param="model", status=400)
+    except Exception as e:
+        logger.exception("Could not resolve model %r", model_id)
+        return create_openai_error_response(f"Could not resolve model: {e}", error_type="api_error", status=500)
 
     if not model:
         return create_openai_error_response(f"Model '{model_id}' not found", error_type="invalid_request_error", code="model_not_found", status=404)
@@ -325,6 +337,10 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         payload = json.loads(request.body)
     except json.JSONDecodeError:
         return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+    if not isinstance(payload, dict):
+        # ``null``, a list or a bare scalar parses fine and then blows up on the
+        # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
+        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
 
     # Validate required fields
     if "messages" not in payload:
@@ -387,27 +403,53 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         return litellm_error_response(e, model=model)
 
 
-#: Request-body keys never forwarded to litellm: routing and credentials are
-#: decided by the resolved model's provider, not the caller.
-RESERVED_LITELLM_KEYS = {
+#: Request-body keys that are *ours*, not the caller's: routing, credentials, and
+#: retry/timeout policy are decided by the resolved model's provider.
+ROUTING_KEYS = {
     "api_key",
     "api_base",
     "base_url",
     "api_version",
     "custom_llm_provider",
     "extra_headers",
+    "default_headers",
+    "headers",
     "organization",
+    "deployment_id",
+    "max_retries",
+    "request_timeout",
+    "timeout",
 }
 
+#: Every kwarg litellm treats as *control* is reserved, except the OpenAI request
+#: params a real client legitimately sends (``stream_options``, ``seed``, ``tools``,
+#: ``response_format``, ...). Derived from litellm rather than hand-listed, because
+#: the hand-listed version enumerated seven keys out of ~190 and let the rest
+#: through: ``input_cost_per_token``/``output_cost_per_token`` make litellm call
+#: ``register_model``, which writes the *process-global* ``litellm.model_cost`` map
+#: -- so a caller could zero its own recorded cost (defeating the cost budgets in
+#: ``llm.usage``) and re-price that model for every other organization in the
+#: worker. ``mock_response``, ``fallbacks``, ``model_list``, ``num_retries`` and
+#: ``caching`` were reachable the same way.
+#:
+#: Keys litellm does not know at all still pass through, so this stays a tunnel:
+#: provider-specific body params keep working without being enumerated here.
+RESERVED_LITELLM_KEYS = (set(all_litellm_params) - (set(OPENAI_CHAT_COMPLETION_PARAMS) - ROUTING_KEYS)) | ROUTING_KEYS
 
-def _build_litellm_kwargs(payload: dict, model: llm_models.LLMModel, *, handled: set, **explicit) -> dict:
+#: Embeddings accept a much smaller OpenAI surface.
+RESERVED_EMBEDDING_KEYS = RESERVED_LITELLM_KEYS - set(OPENAI_EMBEDDING_PARAMS)
+
+
+def _build_litellm_kwargs(payload: dict, model: llm_models.LLMModel, *, handled: set, reserved: Optional[set] = None, **explicit) -> dict:
     """Assemble litellm kwargs: provider routing/credentials, the explicitly
     handled fields, and every remaining request-body key forwarded verbatim.
 
     A closed allowlist here silently dropped whatever the caller's SDK sent that
     we hadn't enumerated (``stream_options``, ``seed``, ``logprobs``, ...); as a
-    tunnel we pass params through and reserve only the routing/credential keys.
+    tunnel we pass params through, and reserve litellm's control plane -- see
+    ``RESERVED_LITELLM_KEYS`` for what that covers and why it is derived.
     """
+    reserved = RESERVED_LITELLM_KEYS if reserved is None else reserved
     kwargs = {
         "model": model.llm_string,
         "api_base": model.provider.api_base,
@@ -415,13 +457,29 @@ def _build_litellm_kwargs(payload: dict, model: llm_models.LLMModel, *, handled:
         **explicit,
     }
     for key, value in payload.items():
-        if key in handled or key in RESERVED_LITELLM_KEYS or value is None:
+        if key in handled or key in reserved or value is None:
             continue
         kwargs[key] = value
     return kwargs
 
 
 StreamCallback = Callable[[list, Optional[BaseException]], Awaitable[None]]
+
+
+async def _aclose_stream(response: Any) -> None:
+    """Release the upstream connection an aborted SSE stream left open.
+
+    Not ``contextlib.aclosing``: ``CustomStreamWrapper`` has ``aclose``, but the
+    ``/v1/completions`` wrapper does not -- it holds the real stream on
+    ``completion_stream`` -- so the obvious version would silently skip closing on
+    exactly one of the two endpoints.
+    """
+    for candidate in (response, getattr(response, "completion_stream", None)):
+        aclose = getattr(candidate, "aclose", None)
+        if aclose is not None:
+            with contextlib.suppress(Exception):
+                await aclose()
+            return
 
 
 def _streaming_response(response: AsyncIterable[Any], *, on_complete: Optional[StreamCallback] = None, hide_usage_chunks: bool = False) -> StreamingHttpResponse:
@@ -459,6 +517,9 @@ def _streaming_response(response: AsyncIterable[Any], *, on_complete: Optional[S
                 }
             }
             yield f"data: {json.dumps(error_data)}\n\n".encode()
+            # Terminate the way the success path does: a client looping until the
+            # sentinel otherwise hangs until its own timeout.
+            yield b"data: [DONE]\n\n"
         except BaseException as e:  # client disconnect: GeneratorExit / CancelledError
             error = e
             raise
@@ -466,8 +527,14 @@ def _streaming_response(response: AsyncIterable[Any], *, on_complete: Optional[S
             if on_complete is not None:
                 try:
                     await on_complete(chunks, error)
-                except Exception:
+                except BaseException:
+                    # BaseException, not Exception: this ``finally`` runs on the
+                    # client-disconnect path too, where a second cancellation can
+                    # land on the callback's first await. Accounting must never
+                    # change what the client sees, so it is logged and dropped.
                     logger.exception("Usage callback failed after stream")
+            # After the recording, so a failure to close cannot cost us the row.
+            await _aclose_stream(response)
 
     return StreamingHttpResponse(
         stream_generator(),
@@ -508,6 +575,10 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
         payload = json.loads(request.body)
     except json.JSONDecodeError:
         return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+    if not isinstance(payload, dict):
+        # ``null``, a list or a bare scalar parses fine and then blows up on the
+        # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
+        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
 
     if "prompt" not in payload:
         return create_openai_error_response("Missing required field: prompt", error_type="invalid_request_error", param="prompt", status=400)
@@ -544,6 +615,20 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
     try:
         await aenforce_budget(organization, user, model)
         if stream:
+            # Ask the upstream to report usage on its final chunk, exactly as chat
+            # does; without it a streamed completion's usage is always a tiktoken
+            # estimate, so cost budgets under-count this endpoint. No
+            # ``hide_usage_chunks`` needed: text-completion chunks always carry
+            # ``choices``, and their ``usage`` key is present either way -- injecting
+            # only fills it in.
+            injected_usage = "stream_options" not in payload
+            if injected_usage:
+                litellm_kwargs["stream_options"] = {"include_usage": True}
+                # Coupled to the injection on purpose: drop_params exists so the
+                # stream_options *we* added cannot 400 a provider that lacks them.
+                # Unconditional, it would start silently swallowing the caller's own
+                # unsupported params instead of surfacing the provider's error.
+                litellm_kwargs.setdefault("drop_params", True)
             response = await litellm.atext_completion(**litellm_kwargs)
 
             async def on_complete(chunks: list, error: Optional[BaseException]) -> None:
@@ -589,6 +674,10 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
         return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+    if not isinstance(payload, dict):
+        # ``null``, a list or a bare scalar parses fine and then blows up on the
+        # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
+        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
 
     if "input" not in payload:
         return create_openai_error_response("Missing required field: input", error_type="invalid_request_error", param="input", status=400)
@@ -613,6 +702,7 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         payload,
         model,
         handled={"model", "input"},
+        reserved=RESERVED_EMBEDDING_KEYS,
         input=payload["input"],
         encoding_format=payload.get("encoding_format", "float"),
     )
