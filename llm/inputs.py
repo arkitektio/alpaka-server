@@ -1,3 +1,5 @@
+import decimal
+
 import strawberry
 from typing import Optional, List
 from strawberry import scalars
@@ -65,14 +67,26 @@ class ChatMessageInput:
     tool_calls: Optional[List[ToolCallInput]] = None
 
 
-@strawberry.input(description="A chat message input")
+@strawberry.input(description="A chat completion request")
 class ChatInput:
-    """A chat message input for a large language model"""
+    """A chat completion request for a large language model.
 
-    model: strawberry.ID | None = None
+    The optional generation parameters mirror those the OpenAI-compatible REST
+    endpoint accepts, so the two front doors take the same request.
+    """
+
     messages: List[ChatMessageInput]
+    model: strawberry.ID | None = None
     tools: Optional[List[ToolInput]] = None
+    tool_choice: Optional[scalars.JSON] = None
     temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    stop: Optional[List[str]] = None
+    n: Optional[int] = None
+    response_format: Optional[scalars.JSON] = None
 
 
 @strawberry.input(description="The image")
@@ -83,5 +97,37 @@ class ImageInput:
 
 @strawberry.input(description="The input for using a model for a specific task")
 class UseModelForInput:
+    """The model to register, and the task to register it against."""
+
     model: strawberry.ID
-    kind: str
+    kind: enums.DefaultKind
+
+
+@strawberry.input(description="A budget to create")
+class CreateBudgetInput:
+    """A new cap on LLM consumption. Applies to the whole organization unless narrowed to a user and/or a model."""
+
+    user: Optional[strawberry.ID] = None
+    model: Optional[strawberry.ID] = None
+    period: enums.BudgetPeriod = enums.BudgetPeriod.MONTH
+    limit_tokens: Optional[int] = None
+    limit_cost: Optional[decimal.Decimal] = None
+    hard: bool = True
+
+
+@strawberry.input(description="Changes to a budget; omitted fields are left as they are, explicit nulls clear a limit")
+class UpdateBudgetInput:
+    """A partial update of a budget."""
+
+    id: strawberry.ID
+    period: Optional[enums.BudgetPeriod] = strawberry.UNSET
+    limit_tokens: Optional[int] = strawberry.UNSET
+    limit_cost: Optional[decimal.Decimal] = strawberry.UNSET
+    hard: Optional[bool] = strawberry.UNSET
+
+
+@strawberry.input(description="The budget to delete")
+class DeleteBudgetInput:
+    """The budget to remove."""
+
+    id: strawberry.ID

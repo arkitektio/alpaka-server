@@ -1,7 +1,118 @@
+<!-- Frozen. Releases are tag-only since the move to tag-only semantic-release,
+so this file is no longer generated; entries below stop at the last release that
+predates the switch. Current release notes live on the GitHub Releases page. -->
+
 # CHANGELOG
 
 
-## v1.0.1 (2026-06-25)
+## v2.0.0-rc.11 (2026-09-11)
+
+### Features
+
+- Streaming
+  ([`5e24852`](https://github.com/arkitektio/alpaka-server/commit/5e24852dbca6ee406c6e13fd6fa6bbc29509ecec))
+
+
+## v2.0.0-rc.10 (2026-09-10)
+
+### Features
+
+- Usage accounting, budgets, and streaming replies into rooms
+  ([`22e80cc`](https://github.com/arkitektio/alpaka-server/commit/22e80cca4e621d02f3a500f7180e84ed99476395))
+
+Usage accounting and budgets - UsageRecord rows for every LLM call (GraphQL chat/image, REST chat,
+  completions, embeddings incl. streaming, vector embedding): tokens, cost, latency, status.
+  Recording never raises. - Budget model per organization / user / model and period; hard budgets
+  block before the upstream call (REST 429 insufficient_quota, GraphQL error). - GraphQL:
+  usageRecords, usageStats, budgets, budget, budgetStatus, create/update/deleteBudget. Migration llm
+  0003.
+
+Streaming replies into rooms (agents live on clients; no server-side LLM) - GraphQL startMessage /
+  appendMessage (atomic concat) / finishMessage. - room subscription gains a kind field and emits
+  MESSAGE_CREATED/UPDATED/ FINISHED plus JOIN/LEAVE. - WebSocket /kammer/stream/ with server-side
+  delta coalescing, so a client can send one frame per token without a GraphQL mutation each. -
+  Shared kammer.streaming service behind both front doors. - SendMessageInput.notify removed (never
+  read); parent is validated.
+
+Fixes - settings.py honours django.* from the config schema (DEBUG, SECRET_KEY, hosts, CSRF origins,
+  forwarded host); keep MY_SCRIPT_NAME for kante. - New ensureadmin command that run.sh has called
+  since v1; scripts set -euo. - inspectollama requires --organization and reuses
+  arefresh_provider_models. - documents query returns results for every queryText. - Dockerfile CMD;
+  CONFIG.md documents the providers: shorthand; dead code.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+Claude-Session: https://claude.ai/code/session_01WoE7tHgbZ4j5yZaXkYMJPX
+
+
+## v2.0.0-rc.9 (2026-09-02)
+
+### Bug Fixes
+
+- Atuhentikate
+  ([`acd7788`](https://github.com/arkitektio/alpaka-server/commit/acd7788f596fcf1afe477d42da836dd2907e19af))
+
+
+## v2.0.0-rc.8 (2026-09-01)
+
+### Features
+
+- Better rest api
+  ([`2a032ca`](https://github.com/arkitektio/alpaka-server/commit/2a032ca698da3038b7bb5600c02806c0354845ba))
+
+
+## v2.0.0-rc.7 (2026-08-21)
+
+### Bug Fixes
+
+- Updates
+  ([`4d1060c`](https://github.com/arkitektio/alpaka-server/commit/4d1060cc1dc6316bd5a624f4fd2168c03d0f5ada))
+
+
+## v2.0.0-rc.6 (2026-08-20)
+
+### Bug Fixes
+
+- Authentikate
+  ([`23378b6`](https://github.com/arkitektio/alpaka-server/commit/23378b6128286ed28553d8a52ddb590a2c77be3e))
+
+
+## v2.0.0-rc.5 (2026-06-30)
+
+### Bug Fixes
+
+- Better errors for agents
+  ([`3a0135c`](https://github.com/arkitektio/alpaka-server/commit/3a0135c803744b9f54469da41527109846969226))
+
+
+## v2.0.0-rc.4 (2026-06-29)
+
+### Bug Fixes
+
+- Auth update
+  ([`7a6f993`](https://github.com/arkitektio/alpaka-server/commit/7a6f993fd7c9332bc5a51cad3e59d4107202d6e8))
+
+
+## v2.0.0-rc.3 (2026-06-26)
+
+### Features
+
+- Removal of stale migrations
+  ([`3a48a6a`](https://github.com/arkitektio/alpaka-server/commit/3a48a6a14c969d8678bbdd16209d8f41d0c5e30b))
+
+
+## v2.0.0-rc.2 (2026-06-26)
+
+
+## v2.0.0-rc.1 (2026-06-26)
+
+### Features
+
+- With config + providers + optimized containers
+  ([`5c79c72`](https://github.com/arkitektio/alpaka-server/commit/5c79c72a11ffd4f30b35720c393384bf6af7e0ee))
+
+- With whitenoise
+  ([`fb4447d`](https://github.com/arkitektio/alpaka-server/commit/fb4447d815b072ebb91c7dc90f9bc27a4591a223))
 
 
 ## v1.0.1-rc.1 (2026-06-25)

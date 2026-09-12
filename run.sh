@@ -1,16 +1,19 @@
 #!/bin/bash
+# Abort on the first failing step: a half-initialised server (no admin, no
+# partners, unapplied migrations) must not come up looking healthy.
+set -euo pipefail
+
 echo "=> Waiting for DB to be online"
-uv run python manage.py wait_for_database -s 6
+python manage.py wait_for_database -s 6
 
 echo "=> Performing database migrations..."
-uv run python manage.py migrate
+python manage.py migrate
 
 echo "=> Ensuring Superusers..."
-uv run python manage.py ensureadmin
+python manage.py ensureadmin
 
-echo "=> Collecting Static.."
-uv run python manage.py collectstatic --noinput
+echo "=> Ensuring Provider Partners..."
+python manage.py ensurepartners
 
-# Start the first process
 echo "=> Starting Server"
-uv run daphne -b 0.0.0.0 -p 80 --websocket_timeout -1 alpaka_server.asgi:application 
+daphne -b 0.0.0.0 -p 80 --websocket_timeout -1 alpaka_server.asgi:application

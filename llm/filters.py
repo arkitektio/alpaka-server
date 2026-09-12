@@ -1,3 +1,4 @@
+import datetime
 import strawberry
 import strawberry_django
 from django.db.models import Q
@@ -24,12 +25,25 @@ class LLMModelFilter:
         return Q(**{f"{prefix}label__icontains": value})
 
     @strawberry_django.filter_field
-    def input_modalities(self, value: list[enums.InputModality], prefix: str) -> Q:
+    def input_modalities(self, value: list[enums.Modality], prefix: str) -> Q:
         return Q(**{f"{prefix}input_modalities__contains": value})
 
     @strawberry_django.filter_field
-    def output_modalities(self, value: list[enums.InputModality], prefix: str) -> Q:
+    def output_modalities(self, value: list[enums.Modality], prefix: str) -> Q:
         return Q(**{f"{prefix}output_modalities__contains": value})
+
+    @strawberry_django.filter_field
+    def features(self, value: list[enums.FeatureType], prefix: str) -> Q:
+        """Match models supporting every one of the named capabilities."""
+        q = Q()
+        for feature in value:
+            q &= Q(**{f"{prefix}features__contains": [feature.value]})
+        return q
+
+    @strawberry_django.filter_field
+    def provider(self, value: strawberry.ID, prefix: str) -> Q:
+        """Restrict to the models offered by one provider."""
+        return Q(**{f"{prefix}provider_id": value})
 
 
 @strawberry_django.order_type(models.Provider)
@@ -67,3 +81,82 @@ class DefaultUseFilter:
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}kind__icontains": value})
+
+
+@strawberry_django.order_type(models.UsageRecord)
+class UsageRecordOrder:
+    created_at: auto
+    total_tokens: auto
+    cost: auto
+    latency_ms: auto
+
+
+@strawberry_django.filter_type(models.UsageRecord, description="Filter for usage records")
+class UsageRecordFilter:
+    """Filter for UsageRecord"""
+
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def user(self, value: strawberry.ID, prefix: str) -> Q:
+        """Records of one user."""
+        return Q(**{f"{prefix}user_id": value})
+
+    @strawberry_django.filter_field
+    def model(self, value: strawberry.ID, prefix: str) -> Q:
+        """Records of one model."""
+        return Q(**{f"{prefix}model_id": value})
+
+    @strawberry_django.filter_field
+    def endpoint(self, value: enums.UsageEndpoint, prefix: str) -> Q:
+        """Records that came through one entry point."""
+        return Q(**{f"{prefix}endpoint": value.value})
+
+    @strawberry_django.filter_field
+    def endpoints(self, value: list[enums.UsageEndpoint], prefix: str) -> Q:
+        """Records that came through any of the given entry points."""
+        return Q(**{f"{prefix}endpoint__in": [v.value for v in value]})
+
+    @strawberry_django.filter_field
+    def status(self, value: enums.UsageStatus, prefix: str) -> Q:
+        return Q(**{f"{prefix}status": value.value})
+
+    @strawberry_django.filter_field
+    def created_after(self, value: datetime.datetime, prefix: str) -> Q:
+        """Records created at or after this time."""
+        return Q(**{f"{prefix}created_at__gte": value})
+
+    @strawberry_django.filter_field
+    def created_before(self, value: datetime.datetime, prefix: str) -> Q:
+        """Records created before this time."""
+        return Q(**{f"{prefix}created_at__lt": value})
+
+
+@strawberry_django.order_type(models.Budget)
+class BudgetOrder:
+    created_at: auto
+
+
+@strawberry_django.filter_type(models.Budget, description="Filter for budgets")
+class BudgetFilter:
+    """Filter for Budget"""
+
+    @strawberry_django.filter_field
+    def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
+        return Q(**{f"{prefix}id__in": value})
+
+    @strawberry_django.filter_field
+    def user(self, value: strawberry.ID, prefix: str) -> Q:
+        """Budgets restricted to one user."""
+        return Q(**{f"{prefix}user_id": value})
+
+    @strawberry_django.filter_field
+    def model(self, value: strawberry.ID, prefix: str) -> Q:
+        """Budgets restricted to one model."""
+        return Q(**{f"{prefix}model_id": value})
+
+    @strawberry_django.filter_field
+    def period(self, value: enums.BudgetPeriod, prefix: str) -> Q:
+        return Q(**{f"{prefix}period": value.value})

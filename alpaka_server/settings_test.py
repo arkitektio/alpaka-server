@@ -15,13 +15,18 @@ DATABASES["default"] = {
 }
 AUTHENTIKATE = {
     **AUTHENTIKATE,
+    # Django forces DEBUG=False under the test runner, and authentikate 3.0 refuses
+    # static tokens when DEBUG is False. These are deliberate test fixtures.
+    "allow_static_tokens_in_production": True,
     "static_tokens": {
         "test": {"sub": "1"},
+        # A second user in the same organization, for "another agent" tests.
+        "test2": {"sub": "2"},
         # A non-privileged user in a different organization, for cross-tenant
         # scoping/permission tests. roles must be set explicitly: StaticToken
         # defaults roles to ["admin"], which would let this user do anything and
         # defeat the cross-org denial tests.
-        "othertest": {"sub": "9", "active_org": "other_org", "roles": []},
+        "othertest": {"sub": "9", "org": "other_org", "roles": []},
     },
 }
 

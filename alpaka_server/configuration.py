@@ -10,7 +10,7 @@ with a ``ValidationError`` if they are not supplied via config or environment.
 import os
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -42,7 +42,7 @@ class DjangoSettings(BaseModel):
     use_x_forwarded_host: bool = Field(default=True, description="Trust the X-Forwarded-Host header behind a reverse proxy.")
     admin: Optional[AdminSettings] = Field(default=None, description="Superuser provisioned on first boot.")
     csrf_trusted_origins: List[str] = Field(default_factory=lambda: ["http://localhost", "https://localhost"], description="CSRF_TRUSTED_ORIGINS for unsafe (POST) requests.")
-    force_script_name: str = Field(default="", description="URL path prefix (FORCE_SCRIPT_NAME) this service is served under.")
+    force_script_name: str = Field(default="", description="URL path prefix this service is served under (applied to every route by kante's dynamicpath; not Django's FORCE_SCRIPT_NAME).")
 
 
 class PostgresSettings(BaseModel):
@@ -67,6 +67,46 @@ class RedisSettings(BaseModel):
     port: int = Field(default=6379, description="Redis port.")
 
 
+class ProviderPartnerFilterModel(BaseModel):
+    """Filter conditions deciding which users/organizations a partner applies to.
+
+    All conditions are optional. When several are set, ALL must be satisfied
+    (AND logic). Mirrors lok's ``FilterConfigModel``.
+    """
+
+    email_domain_equals: Optional[List[str]] = Field(default=None, description="User email domain must exactly match one of these.")
+    email_domain_ends_with: Optional[List[str]] = Field(default=None, description="User email domain must end with one of these suffixes.")
+    username_equals: Optional[List[str]] = Field(default=None, description="Username must exactly match one of these.")
+    username_contains: Optional[List[str]] = Field(default=None, description="Username must contain one of these substrings.")
+
+
+class ProviderPartnerModel(BaseModel):
+    """A pre-declared LLM provider that can be auto-provisioned for organizations.
+
+    Mirrors lok's ``KommunityPartnerModel``. Partners flagged ``auto_configure``
+    are materialized into a real per-organization ``llm.Provider`` whenever an
+    organization is created.
+    """
+
+    name: str = Field(description="Human-readable provider name (also the generated Provider's name).")
+    identifier: str = Field(description="Unique identifier for the partner within the system.")
+    kind: str = Field(default="unknown", description="The provider kind (e.g. 'openai', 'openrouter', 'ollama').")
+    description: Optional[str] = Field(default=None, description="Long description.")
+    short_description: Optional[str] = Field(default=None, description="Short description.")
+    logo_url: Optional[str] = Field(default=None, description="URL of the partner's logo.")
+    api_key: Optional[str] = Field(default=None, description="API key handed to the provisioned provider.")
+    api_base: Optional[str] = Field(default=None, description="API base URL for the provisioned provider.")
+    additional_config: Optional[Dict[str, Any]] = Field(default=None, description="Extra provider configuration passed through verbatim.")
+    auto_configure: bool = Field(default=False, description="If true, a Provider is auto-created for every new organization.")
+    filter_config: Optional[ProviderPartnerFilterModel] = Field(default=None, description="Conditions narrowing which users/orgs the partner applies to.")
+
+
+class ProviderPartnerConfigModel(BaseModel):
+    """Wrapper model validating the list of provider partners from config."""
+
+    partners: List[ProviderPartnerModel] = Field(default_factory=list)
+
+
 class Settings(BaseSettings):
     """Top-level, validated configuration for the alpaka service."""
 
@@ -76,7 +116,53 @@ class Settings(BaseSettings):
     postgres: PostgresSettings = Field(description="PostgreSQL connection.")
     redis: RedisSettings = Field(description="Redis connection.")
     authentikate: AuthentikateSettings = Field(description="Token-verification config (authentikate).")
-    providers: List[Dict[str, Any]] = Field(default_factory=list, description="LLM provider credentials/config (e.g. OpenRouter API keys).")
+    provider_partners: List[ProviderPartnerModel] = Field(default_factory=list, description="Pre-declared LLM providers; those with auto_configure are provisioned for every new organization.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_providers_shorthand(cls, data: Any) -> Any:
+        """Fold a top-level ``providers:`` block into ``provider_partners``.
+
+        Deployments write the shorthand::
+
+            providers:
+            - openrouter: sk-or-...
+
+        With ``extra="ignore"`` that block used to be silently discarded and no
+        provider was ever provisioned. Each shorthand entry maps every
+        ``<kind>: <api_key>`` pair to an auto-configured partner; keys with a
+        null value (e.g. a bare ``organization:``) are skipped. Entries that
+        already look like a full ``ProviderPartnerModel`` (they carry an
+        ``identifier``) pass through unchanged.
+        """
+        if not isinstance(data, dict):
+            return data
+        providers = data.get("providers")
+        if not providers or data.get("provider_partners"):
+            return data
+
+        partners: List[Any] = []
+        for entry in providers:
+            if not isinstance(entry, dict):
+                continue
+            if "identifier" in entry:
+                partners.append(entry)
+                continue
+            for kind, api_key in entry.items():
+                if not api_key or not isinstance(api_key, str):
+                    continue
+                partners.append(
+                    {
+                        "name": kind,
+                        "identifier": kind,
+                        "kind": kind,
+                        "api_key": api_key,
+                        "auto_configure": True,
+                    }
+                )
+        if partners:
+            data = {**data, "provider_partners": partners}
+        return data
     ollama_url: str = Field(default="http://ollama:11434", description="Base URL of the Ollama server.")
     chroma_db_host: str = Field(default="chromadb", description="ChromaDB vector store host.")
     chroma_db_port: int = Field(default=8000, description="ChromaDB vector store port.")

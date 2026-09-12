@@ -1,59 +1,58 @@
+"""Input types for the vector app."""
+
+from typing import List, Optional
+
 import strawberry
-from typing import Optional, List
 from strawberry import scalars
-from llm import enums
 
 
-@strawberry.input(description="A large language model to change with")
-class ChromeCollectionInput:
-    """A large language model provider"""
-    name: str
-    description: str
-    
-    
-@strawberry.input(description="A function definition for a large language model")
+@strawberry.input(description="A reference to an object held by another Arkitekt service")
 class StructureInput:
-    " A structure definition for a large language model"
+    """A structure definition for a large language model."""
+
     identifier: str
-    object: str
+    object: int
 
 
 @strawberry.input(description="A document to put into the vector database")
 class DocumentInput:
-    """A document input for a large language model"""
-    
+    """A document input for a large language model."""
+
     content: str
-    structure:  StructureInput | None = None
+    structure: StructureInput | None = None
     id: str | None = None
     metadata: Optional[scalars.JSON] = None
 
 
-
-
-@strawberry.input(description="A function call for a large language model")
+@strawberry.input(description="A similarity query against a collection")
 class QueryInput:
-    """ A query input for a large language model"""
-    query_texts: List[str]
-    n_results: Optional[int] = 5
-    where: Optional[scalars.JSON] = None
-    
-    
-    
-@strawberry.input
+    """A query input for a large language model."""
+
+    collection: strawberry.ID
+    query_texts: List[str] = strawberry.field(description="One or more query texts; the union of their results is returned, deduplicated by document")
+    n_results: int = strawberry.field(default=3, description="Results per query text")
+    where: Optional[scalars.JSON] = strawberry.field(default=None, description="Chroma metadata filter applied to every query")
+
+
+@strawberry.input(description="Documents to add to an existing collection")
 class AddDocumentsToCollectionInput:
+    """The documents to embed and store, and the collection to store them in."""
+
     collection: strawberry.ID
     documents: List[DocumentInput]
 
 
-@strawberry.input
+@strawberry.input(description="A collection of documents searchable by string")
 class ChromaCollectionInput:
+    """The collection to create, and the model used to embed its documents."""
+
     name: str
     embedder: strawberry.ID
     description: Optional[str] = None
-    is_public: Optional[bool] = False
 
 
-@strawberry.input
+@strawberry.input(description="The collection to delete")
 class DeleteCollectionInput:
-    id: strawberry.ID
+    """The collection to remove from both the vector database and the metadata store."""
 
+    id: strawberry.ID

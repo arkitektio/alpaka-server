@@ -1,8 +1,47 @@
+import logging
+
 import aiohttp
 import litellm
-from .models import Provider, LLMModel
+from .models import Provider, ProviderPartner, LLMModel
 from .enums import ProviderKind
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+#: Ceiling on a provider's model-listing call. Listing is a small request, so a
+#: short timeout is right; without one a hung provider stalled the mutation.
+LIST_MODELS_TIMEOUT_SECONDS = 60
+
+
+def auto_configure_provider_partners(organization) -> list[str]:
+    """Provision a :class:`Provider` for ``organization`` from every auto-config partner.
+
+    Mirrors lok's ``auto_configure_kommunity_partners``. Runs on organization
+    creation (see ``llm.signals``). Kept pure sync ORM with **no network calls**:
+    it executes inside the auth request path (possibly within an async ORM context),
+    so model listing is refreshed separately, not here.
+    """
+    applied: list[str] = []
+
+    for partner in ProviderPartner.objects.filter(auto_configure=True):
+        # alpaka's Organization has no owner, so there is no user to filter on here;
+        # filter_config is honoured by Provider creation paths that do have a user.
+        Provider.objects.for_write().update_or_create(
+            organization=organization,
+            name=partner.name,
+            defaults=dict(
+                kind=partner.kind,
+                api_key=partner.api_key,
+                api_base=partner.api_base,
+                additional_config=partner.additional_config,
+                description=partner.description or "Auto-provisioned from partner",
+                partner=partner,
+            ),
+        )
+        logger.info("Auto-configured provider '%s' for organization '%s'", partner.identifier, organization)
+        applied.append(partner.identifier)
+
+    return applied
 
 
 def detect_features(model_id: str) -> list[str]:
@@ -17,6 +56,8 @@ def detect_features(model_id: str) -> list[str]:
     if "vision" in model_id or "gpt-4-vision" in model_id:
         features.append("vision")
 
+    # Every value here must exist in `llm.enums.FeatureType`, or serializing
+    # LLMModel.features fails for the whole model.
     return features
 
 
@@ -62,7 +103,8 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
     provider_kind = provider.kind
 
     if provider_kind == ProviderKind.OLLAMA.value:
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=LIST_MODELS_TIMEOUT_SECONDS)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(f"{provider.api_base or settings.OLLAMA_URL}/api/tags") as res:
                 if res.status != 200:
                     raise Exception("Ollama failed")
@@ -71,7 +113,7 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
                     model_id = model["name"]
                     features = detect_features(model_id)
                     input_modalities, output_modalities = detect_modalities(model_id)
-                    obj, _ = await LLMModel.objects.aupdate_or_create(
+                    obj, _ = await LLMModel.objects.for_write().aupdate_or_create(
                         provider=provider,
                         model_id=model_id,
                         defaults={
@@ -91,7 +133,8 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
             "Authorization": f"Bearer {provider.api_key}",
             "Content-Type": "application/json",
         }
-        async with aiohttp.ClientSession(headers=headers) as session:
+        timeout = aiohttp.ClientTimeout(total=LIST_MODELS_TIMEOUT_SECONDS)
+        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
             async with session.get(url) as res:
                 if res.status != 200:
                     text = await res.text()
@@ -105,7 +148,7 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
             features = detect_features(model_id)
             input_modalities, output_modalities = detect_modalities(model_id, model)
             label = model.get("name") or model_id
-            obj, _ = await LLMModel.objects.aupdate_or_create(
+            obj, _ = await LLMModel.objects.for_write().aupdate_or_create(
                 provider=provider,
                 model_id=model_id,
                 defaults={
@@ -125,7 +168,7 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
                 model_id = model["id"]
                 features = detect_features(model_id)
                 input_modalities, output_modalities = detect_modalities(model_id, model)
-                obj, _ = await LLMModel.objects.aupdate_or_create(
+                obj, _ = await LLMModel.objects.for_write().aupdate_or_create(
                     provider=provider,
                     model_id=model_id,
                     defaults={

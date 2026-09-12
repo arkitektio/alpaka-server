@@ -11,9 +11,10 @@ All endpoints are wrapped with authentication and access the correct
 model/tool parameters from the database.
 """
 
+import contextlib
 import json
 import time
-from typing import Optional, AsyncGenerator, Union, Tuple
+from typing import Any, AsyncGenerator, AsyncIterable, Awaitable, Callable, Optional, Union, Tuple
 from django.http import JsonResponse, StreamingHttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 from authentikate.utils import authenticate_header_or_none
@@ -25,9 +26,13 @@ from authentikate.expand import (
 from authentikate.models import User, Organization
 import logging
 import litellm
+from litellm.constants import OPENAI_CHAT_COMPLETION_PARAMS, OPENAI_EMBEDDING_PARAMS
+from litellm.types.utils import all_litellm_params
 from asgiref.sync import sync_to_async
 from llm import models as llm_models
-from llm.manager import get_default_llm_model_for_user
+from llm.enums import DefaultKind, UsageEndpoint
+from llm.manager import NoDefaultModel, get_default_llm_model_for_user
+from llm.usage import BudgetExceeded, aenforce_budget, arecord_usage, usage_from_response, usage_from_stream
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +59,7 @@ async def authenticate_request(request: HttpRequest) -> Tuple[User, object, Orga
     Raises:
         AuthenticationError: If authentication fails
     """
-    token = authenticate_header_or_none(request.headers)
+    token = await authenticate_header_or_none(request.headers)
     if not token:
         raise AuthenticationError("Missing or invalid authentication token")
 
@@ -85,6 +90,34 @@ def create_openai_error_response(
         }
     }
     return JsonResponse(error_body, status=status)
+
+
+def litellm_error_response(e: Exception, *, model: Optional[llm_models.LLMModel] = None) -> JsonResponse:
+    """Map a litellm exception to an OpenAI-compatible error response.
+
+    Surfaces the upstream provider and HTTP status where available so a failing
+    request reports *which* provider rejected it and *why*, instead of a blanket
+    ``Internal server error``. Mirrors ``llm.errors.wrap_llm_errors`` (used by the
+    GraphQL mutations) for the REST endpoints. The specific subclasses are checked
+    before ``APIError`` because they all inherit from it.
+    """
+    ctx = f" for model '{model.llm_string}'" if model is not None else ""
+    if isinstance(e, BudgetExceeded):
+        return create_openai_error_response(f"{e}", error_type="insufficient_quota", code="budget_exceeded", status=429)
+    if isinstance(e, litellm.exceptions.AuthenticationError):
+        return create_openai_error_response(f"Provider authentication failed{ctx}: {e}", error_type="authentication_error", status=401)
+    if isinstance(e, litellm.exceptions.RateLimitError):
+        return create_openai_error_response(f"Rate limit exceeded{ctx}: {e}", error_type="rate_limit_error", status=429)
+    if isinstance(e, litellm.exceptions.InvalidRequestError):
+        return create_openai_error_response(f"{e}", error_type="invalid_request_error", status=400)
+    if isinstance(e, litellm.exceptions.APIError):
+        status = getattr(e, "status_code", None)
+        upstream = getattr(e, "llm_provider", None) or "provider"
+        msg = getattr(e, "message", None) or str(e)
+        out_status = status if isinstance(status, int) and 400 <= status < 600 else 502
+        return create_openai_error_response(f"Upstream {upstream} returned {status}{ctx}: {msg}", error_type="api_error", status=out_status)
+    logger.exception("Unexpected LLM error")
+    return create_openai_error_response(f"Internal server error{ctx}: {e}", error_type="api_error", status=500)
 
 
 class DefaultModelNotConfiguredError(Exception):
@@ -121,38 +154,43 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
 
         # Parse the default type
         suffix = model_identifier.replace("alpaka/default", "")
-        kind: Optional[str] = None
+        kind: Optional[DefaultKind] = None
 
         if suffix in ("", "-chat", "-text"):
-            kind = "text_generation"
+            kind = DefaultKind.TEXT_GENERATION
         elif suffix == "-embedding":
-            kind = "embedding"
+            kind = DefaultKind.EMBEDDING
+        elif suffix == "-image":
+            kind = DefaultKind.IMAGE_GENERATION
 
         if kind is not None:
             try:
                 return get_default_llm_model_for_user(user, organization, kind)
-            except llm_models.DefaultUse.DoesNotExist:
-                raise DefaultModelNotConfiguredError(f"No default model configured for '{kind}'. Please configure a default model for your user/organization.")
+            except NoDefaultModel as e:
+                raise DefaultModelNotConfiguredError(str(e)) from e
+
+    scoped = llm_models.LLMModel.objects.for_organization(organization).select_related("provider")
 
     # First try to get by database ID
     try:
-        return llm_models.LLMModel.objects.select_related("provider").get(id=model_identifier, provider__organization=organization)
+        return scoped.get(id=model_identifier)
     except (llm_models.LLMModel.DoesNotExist, ValueError):
         pass
 
     # Then try by model_id
-    try:
-        return llm_models.LLMModel.objects.select_related("provider").filter(model_id=model_identifier, provider__organization=organization).first()
-    except Exception:
-        pass
+    match = scoped.filter(model_id=model_identifier).first()
+    if match is not None:
+        return match
 
-    # Finally try by llm_string pattern (provider/model)
-    try:
-        if "/" in model_identifier:
-            provider_name, model_id = model_identifier.split("/", 1)
-            return llm_models.LLMModel.objects.select_related("provider").get(provider__name=provider_name, model_id=model_id, provider__organization=organization)
-    except llm_models.LLMModel.DoesNotExist:
-        pass
+    # Finally try by llm_string pattern (provider/model). The advertised ids
+    # use the litellm prefix derived from Provider.kind, but a provider's
+    # display name is also accepted for backward compatibility.
+    if "/" in model_identifier:
+        prefix, model_id = model_identifier.split("/", 1)
+        match = scoped.filter(provider__kind__in=llm_models.KINDS_BY_LITELLM_PREFIX.get(prefix, []), model_id=model_id).first()
+        if match is None:
+            match = scoped.filter(provider__name=prefix, model_id=model_id).first()
+        return match
 
     return None
 
@@ -160,15 +198,15 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
 @sync_to_async
 def get_all_models_for_organization(organization: Organization) -> list[llm_models.LLMModel]:
     """Get all available models for an organization."""
-    return list(llm_models.LLMModel.objects.select_related("provider").filter(provider__organization=organization).all())
+    return list(llm_models.LLMModel.objects.for_organization(organization).select_related("provider"))
 
 
 @sync_to_async
-def get_default_model(user: User, organization: Organization, kind: str) -> Optional[llm_models.LLMModel]:
+def get_default_model(user: User, organization: Organization, kind: DefaultKind) -> Optional[llm_models.LLMModel]:
     """Get the default model for a user and organization."""
     try:
         return get_default_llm_model_for_user(user, organization, kind)
-    except llm_models.DefaultUse.DoesNotExist:
+    except NoDefaultModel:
         return None
 
 
@@ -221,7 +259,13 @@ async def openai_models_view(request: HttpRequest) -> JsonResponse:
     except AuthenticationError as e:
         return create_openai_error_response(str(e), error_type="authentication_error", code="invalid_api_key", status=401)
 
-    models = await get_all_models_for_organization(organization)
+    try:
+        models = await get_all_models_for_organization(organization)
+    except Exception as e:
+        # Every other endpoint answers in the OpenAI error shape; an unguarded
+        # database error here returned Django's HTML 500 instead.
+        logger.exception("Could not list models")
+        return create_openai_error_response(f"Could not list models: {e}", error_type="api_error", status=500)
 
     return JsonResponse({"object": "list", "data": [model_to_openai_format(m) for m in models]})
 
@@ -247,6 +291,9 @@ async def openai_model_detail_view(request: HttpRequest, model_id: str) -> JsonR
         model = await get_model_by_id_or_name(model_id, organization, user)
     except DefaultModelNotConfiguredError as e:
         return create_openai_error_response(str(e), error_type="invalid_request_error", code="default_model_not_configured", param="model", status=400)
+    except Exception as e:
+        logger.exception("Could not resolve model %r", model_id)
+        return create_openai_error_response(f"Could not resolve model: {e}", error_type="api_error", status=500)
 
     if not model:
         return create_openai_error_response(f"Model '{model_id}' not found", error_type="invalid_request_error", code="model_not_found", status=404)
@@ -290,6 +337,10 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         payload = json.loads(request.body)
     except json.JSONDecodeError:
         return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+    if not isinstance(payload, dict):
+        # ``null``, a list or a bare scalar parses fine and then blows up on the
+        # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
+        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
 
     # Validate required fields
     if "messages" not in payload:
@@ -306,86 +357,159 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
             return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
     else:
         # Use default model for chat
-        model = await get_default_model(user, organization, "text_generation")
+        model = await get_default_model(user, organization, DefaultKind.TEXT_GENERATION)
         if not model:
             return create_openai_error_response("No model specified and no default model configured", error_type="invalid_request_error", param="model", status=400)
 
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 
-    # Extract parameters
-    messages = payload.get("messages", [])
-    stream = payload.get("stream", False)
-    tools = payload.get("tools")
-    tool_choice = payload.get("tool_choice")
-    temperature = payload.get("temperature")
-    max_tokens = payload.get("max_tokens")
-    top_p = payload.get("top_p")
-    frequency_penalty = payload.get("frequency_penalty")
-    presence_penalty = payload.get("presence_penalty")
-    stop = payload.get("stop")
-    n = payload.get("n", 1)
-    response_format = payload.get("response_format")
+    stream = bool(payload.get("stream", False))
 
-    # Build LiteLLM request kwargs
-    litellm_kwargs = {
-        "model": model.llm_string,
-        "messages": messages,
-        "api_base": model.provider.api_base,
-        "api_key": model.provider.api_key,
-        "stream": stream,
-    }
+    litellm_kwargs = _build_litellm_kwargs(
+        payload,
+        model,
+        handled={"model", "messages", "stream"},
+        messages=payload["messages"],
+        stream=stream,
+    )
 
-    # Add optional parameters if provided
-    if tools:
-        litellm_kwargs["tools"] = tools
-    if tool_choice:
-        litellm_kwargs["tool_choice"] = tool_choice
-    if temperature is not None:
-        litellm_kwargs["temperature"] = temperature
-    if max_tokens is not None:
-        litellm_kwargs["max_tokens"] = max_tokens
-    if top_p is not None:
-        litellm_kwargs["top_p"] = top_p
-    if frequency_penalty is not None:
-        litellm_kwargs["frequency_penalty"] = frequency_penalty
-    if presence_penalty is not None:
-        litellm_kwargs["presence_penalty"] = presence_penalty
-    if stop:
-        litellm_kwargs["stop"] = stop
-    if n != 1:
-        litellm_kwargs["n"] = n
-    if response_format:
-        litellm_kwargs["response_format"] = response_format
+    started = time.monotonic()
+    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_CHAT)
 
     try:
+        await aenforce_budget(organization, user, model)
         if stream:
-            return await _handle_streaming_chat(litellm_kwargs)
+            # Ask the upstream to report usage on its final chunk. The extra
+            # usage-only chunk is hidden from callers that did not ask for it.
+            injected_usage = "stream_options" not in payload
+            if injected_usage:
+                litellm_kwargs["stream_options"] = {"include_usage": True}
+                litellm_kwargs.setdefault("drop_params", True)
+            response = await litellm.acompletion(**litellm_kwargs)
+
+            async def on_complete(chunks: list, error: Optional[BaseException]) -> None:
+                facts = await sync_to_async(usage_from_stream)(chunks, messages=payload["messages"], model_string=model.llm_string)
+                await arecord_usage(**accounting, facts=facts, started_at=started, error=error)
+
+            return _streaming_response(response, on_complete=on_complete, hide_usage_chunks=injected_usage)
         else:
             response = await litellm.acompletion(**litellm_kwargs)
+            await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string), started_at=started)
             return JsonResponse(response.model_dump())
-    except litellm.exceptions.AuthenticationError as e:
-        return create_openai_error_response(f"Provider authentication failed: {str(e)}", error_type="authentication_error", status=401)
-    except litellm.exceptions.RateLimitError as e:
-        return create_openai_error_response(f"Rate limit exceeded: {str(e)}", error_type="rate_limit_error", status=429)
-    except litellm.exceptions.InvalidRequestError as e:
-        return create_openai_error_response(str(e), error_type="invalid_request_error", status=400)
     except Exception as e:
-        logger.exception("Error in chat completion")
-        return create_openai_error_response(f"Internal server error: {str(e)}", error_type="api_error", status=500)
+        if not isinstance(e, BudgetExceeded):
+            await arecord_usage(**accounting, started_at=started, error=e)
+        return litellm_error_response(e, model=model)
 
 
-async def _handle_streaming_chat(litellm_kwargs: dict) -> StreamingHttpResponse:
-    """Handle streaming chat completions."""
+#: Request-body keys that are *ours*, not the caller's: routing, credentials, and
+#: retry/timeout policy are decided by the resolved model's provider.
+ROUTING_KEYS = {
+    "api_key",
+    "api_base",
+    "base_url",
+    "api_version",
+    "custom_llm_provider",
+    "extra_headers",
+    "default_headers",
+    "headers",
+    "organization",
+    "deployment_id",
+    "max_retries",
+    "request_timeout",
+    "timeout",
+}
+
+#: Every kwarg litellm treats as *control* is reserved, except the OpenAI request
+#: params a real client legitimately sends (``stream_options``, ``seed``, ``tools``,
+#: ``response_format``, ...). Derived from litellm rather than hand-listed, because
+#: the hand-listed version enumerated seven keys out of ~190 and let the rest
+#: through: ``input_cost_per_token``/``output_cost_per_token`` make litellm call
+#: ``register_model``, which writes the *process-global* ``litellm.model_cost`` map
+#: -- so a caller could zero its own recorded cost (defeating the cost budgets in
+#: ``llm.usage``) and re-price that model for every other organization in the
+#: worker. ``mock_response``, ``fallbacks``, ``model_list``, ``num_retries`` and
+#: ``caching`` were reachable the same way.
+#:
+#: Keys litellm does not know at all still pass through, so this stays a tunnel:
+#: provider-specific body params keep working without being enumerated here.
+RESERVED_LITELLM_KEYS = (set(all_litellm_params) - (set(OPENAI_CHAT_COMPLETION_PARAMS) - ROUTING_KEYS)) | ROUTING_KEYS
+
+#: Embeddings accept a much smaller OpenAI surface.
+RESERVED_EMBEDDING_KEYS = RESERVED_LITELLM_KEYS - set(OPENAI_EMBEDDING_PARAMS)
+
+
+def _build_litellm_kwargs(payload: dict, model: llm_models.LLMModel, *, handled: set, reserved: Optional[set] = None, **explicit) -> dict:
+    """Assemble litellm kwargs: provider routing/credentials, the explicitly
+    handled fields, and every remaining request-body key forwarded verbatim.
+
+    A closed allowlist here silently dropped whatever the caller's SDK sent that
+    we hadn't enumerated (``stream_options``, ``seed``, ``logprobs``, ...); as a
+    tunnel we pass params through, and reserve litellm's control plane -- see
+    ``RESERVED_LITELLM_KEYS`` for what that covers and why it is derived.
+    """
+    reserved = RESERVED_LITELLM_KEYS if reserved is None else reserved
+    kwargs = {
+        "model": model.llm_string,
+        "api_base": model.provider.api_base,
+        "api_key": model.provider.api_key,
+        **explicit,
+    }
+    for key, value in payload.items():
+        if key in handled or key in reserved or value is None:
+            continue
+        kwargs[key] = value
+    return kwargs
+
+
+StreamCallback = Callable[[list, Optional[BaseException]], Awaitable[None]]
+
+
+async def _aclose_stream(response: Any) -> None:
+    """Release the upstream connection an aborted SSE stream left open.
+
+    Not ``contextlib.aclosing``: ``CustomStreamWrapper`` has ``aclose``, but the
+    ``/v1/completions`` wrapper does not -- it holds the real stream on
+    ``completion_stream`` -- so the obvious version would silently skip closing on
+    exactly one of the two endpoints.
+    """
+    for candidate in (response, getattr(response, "completion_stream", None)):
+        aclose = getattr(candidate, "aclose", None)
+        if aclose is not None:
+            with contextlib.suppress(Exception):
+                await aclose()
+            return
+
+
+def _streaming_response(response: AsyncIterable[Any], *, on_complete: Optional[StreamCallback] = None, hide_usage_chunks: bool = False) -> StreamingHttpResponse:
+    """Wrap an already-started litellm stream as SSE.
+
+    The upstream call is awaited by the caller *before* this response is
+    constructed, so pre-stream failures (bad provider key, rate limit) surface
+    as real HTTP statuses via ``litellm_error_response`` instead of a 200 with
+    an error frame. Only mid-stream failures degrade to an error event.
+
+    ``on_complete(chunks, error)`` runs once the stream ends — after ``[DONE]``,
+    after an error frame, or when the client disconnects — so usage can be
+    recorded from whatever was actually sent. ``hide_usage_chunks`` drops the
+    choices-less usage chunk that ``stream_options.include_usage`` adds, for
+    callers that did not request it.
+    """
 
     async def stream_generator() -> AsyncGenerator[bytes, None]:
+        chunks: list = []
+        error: Optional[BaseException] = None
         try:
-            response = await litellm.acompletion(**litellm_kwargs)
             async for chunk in response:
+                chunks.append(chunk)
                 chunk_data = chunk.model_dump()
+                if hide_usage_chunks and not chunk_data.get("choices") and chunk_data.get("usage"):
+                    continue
                 yield f"data: {json.dumps(chunk_data)}\n\n".encode()
             yield b"data: [DONE]\n\n"
         except Exception as e:
+            error = e
             error_data = {
                 "error": {
                     "message": str(e),
@@ -393,6 +517,24 @@ async def _handle_streaming_chat(litellm_kwargs: dict) -> StreamingHttpResponse:
                 }
             }
             yield f"data: {json.dumps(error_data)}\n\n".encode()
+            # Terminate the way the success path does: a client looping until the
+            # sentinel otherwise hangs until its own timeout.
+            yield b"data: [DONE]\n\n"
+        except BaseException as e:  # client disconnect: GeneratorExit / CancelledError
+            error = e
+            raise
+        finally:
+            if on_complete is not None:
+                try:
+                    await on_complete(chunks, error)
+                except BaseException:
+                    # BaseException, not Exception: this ``finally`` runs on the
+                    # client-disconnect path too, where a second cancellation can
+                    # land on the callback's first await. Accounting must never
+                    # change what the client sees, so it is logged and dropped.
+                    logger.exception("Usage callback failed after stream")
+            # After the recording, so a failure to close cannot cost us the row.
+            await _aclose_stream(response)
 
     return StreamingHttpResponse(
         stream_generator(),
@@ -433,6 +575,10 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
         payload = json.loads(request.body)
     except json.JSONDecodeError:
         return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+    if not isinstance(payload, dict):
+        # ``null``, a list or a bare scalar parses fine and then blows up on the
+        # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
+        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
 
     if "prompt" not in payload:
         return create_openai_error_response("Missing required field: prompt", error_type="invalid_request_error", param="prompt", status=400)
@@ -446,67 +592,58 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
         if not model:
             return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
     else:
-        model = await get_default_model(user, organization, "text_generation")
+        model = await get_default_model(user, organization, DefaultKind.TEXT_GENERATION)
         if not model:
             return create_openai_error_response("No model specified and no default model configured", error_type="invalid_request_error", param="model", status=400)
 
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 
-    prompt = payload.get("prompt")
-    stream = payload.get("stream", False)
+    stream = bool(payload.get("stream", False))
 
-    litellm_kwargs = {
-        "model": model.llm_string,
-        "prompt": prompt,
-        "api_base": model.provider.api_base,
-        "api_key": model.provider.api_key,
-        "stream": stream,
-    }
+    litellm_kwargs = _build_litellm_kwargs(
+        payload,
+        model,
+        handled={"model", "prompt", "stream"},
+        prompt=payload["prompt"],
+        stream=stream,
+    )
 
-    # Add optional parameters
-    for param in ["temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "stop", "n", "logprobs", "echo", "suffix"]:
-        if param in payload:
-            litellm_kwargs[param] = payload[param]
+    started = time.monotonic()
+    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_COMPLETION)
 
     try:
+        await aenforce_budget(organization, user, model)
         if stream:
-            return await _handle_streaming_completion(litellm_kwargs)
+            # Ask the upstream to report usage on its final chunk, exactly as chat
+            # does; without it a streamed completion's usage is always a tiktoken
+            # estimate, so cost budgets under-count this endpoint. No
+            # ``hide_usage_chunks`` needed: text-completion chunks always carry
+            # ``choices``, and their ``usage`` key is present either way -- injecting
+            # only fills it in.
+            injected_usage = "stream_options" not in payload
+            if injected_usage:
+                litellm_kwargs["stream_options"] = {"include_usage": True}
+                # Coupled to the injection on purpose: drop_params exists so the
+                # stream_options *we* added cannot 400 a provider that lacks them.
+                # Unconditional, it would start silently swallowing the caller's own
+                # unsupported params instead of surfacing the provider's error.
+                litellm_kwargs.setdefault("drop_params", True)
+            response = await litellm.atext_completion(**litellm_kwargs)
+
+            async def on_complete(chunks: list, error: Optional[BaseException]) -> None:
+                facts = await sync_to_async(usage_from_stream)(chunks, model_string=model.llm_string, text_completion=True)
+                await arecord_usage(**accounting, facts=facts, started_at=started, error=error)
+
+            return _streaming_response(response, on_complete=on_complete)
         else:
             response = await litellm.atext_completion(**litellm_kwargs)
+            await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string), started_at=started)
             return JsonResponse(response.model_dump())
     except Exception as e:
-        logger.exception("Error in text completion")
-        return create_openai_error_response(f"Internal server error: {str(e)}", error_type="api_error", status=500)
-
-
-async def _handle_streaming_completion(litellm_kwargs: dict) -> StreamingHttpResponse:
-    """Handle streaming text completions."""
-
-    async def stream_generator() -> AsyncGenerator[bytes, None]:
-        try:
-            response = await litellm.atext_completion(**litellm_kwargs)
-            async for chunk in response:
-                chunk_data = chunk.model_dump()
-                yield f"data: {json.dumps(chunk_data)}\n\n".encode()
-            yield b"data: [DONE]\n\n"
-        except Exception as e:
-            error_data = {
-                "error": {
-                    "message": str(e),
-                    "type": "api_error",
-                }
-            }
-            yield f"data: {json.dumps(error_data)}\n\n".encode()
-
-    return StreamingHttpResponse(
-        stream_generator(),
-        content_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+        if not isinstance(e, BudgetExceeded):
+            await arecord_usage(**accounting, started_at=started, error=e)
+        return litellm_error_response(e, model=model)
 
 
 @csrf_exempt
@@ -537,6 +674,10 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
         return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+    if not isinstance(payload, dict):
+        # ``null``, a list or a bare scalar parses fine and then blows up on the
+        # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
+        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
 
     if "input" not in payload:
         return create_openai_error_response("Missing required field: input", error_type="invalid_request_error", param="input", status=400)
@@ -550,28 +691,34 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         if not model:
             return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
     else:
-        model = await get_default_model(user, organization, "embedding")
+        model = await get_default_model(user, organization, DefaultKind.EMBEDDING)
         if not model:
             return create_openai_error_response("No model specified and no default embedding model configured", error_type="invalid_request_error", param="model", status=400)
 
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 
-    input_text = payload.get("input")
-    encoding_format = payload.get("encoding_format", "float")
+    litellm_kwargs = _build_litellm_kwargs(
+        payload,
+        model,
+        handled={"model", "input"},
+        reserved=RESERVED_EMBEDDING_KEYS,
+        input=payload["input"],
+        encoding_format=payload.get("encoding_format", "float"),
+    )
+
+    started = time.monotonic()
+    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_EMBEDDING)
 
     try:
-        response = await litellm.aembedding(
-            model=model.llm_string,
-            input=input_text,
-            api_base=model.provider.api_base,
-            api_key=model.provider.api_key,
-            encoding_format=encoding_format,
-        )
+        await aenforce_budget(organization, user, model)
+        response = await litellm.aembedding(**litellm_kwargs)
+        await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string, call_type="embedding"), started_at=started)
         return JsonResponse(response.model_dump())
     except Exception as e:
-        logger.exception("Error in embeddings")
-        return create_openai_error_response(f"Internal server error: {str(e)}", error_type="api_error", status=500)
+        if not isinstance(e, BudgetExceeded):
+            await arecord_usage(**accounting, started_at=started, error=e)
+        return litellm_error_response(e, model=model)
 
 
 # ============================================================================

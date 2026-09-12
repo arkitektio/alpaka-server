@@ -1,14 +1,17 @@
+import asyncio
+import contextlib
 import os
 import time
 
 import psycopg
 import pytest
+import pytest_asyncio
 from dokker import testing
 
 from authentikate.models import Client, Membership, Organization, User
 from django.contrib.contenttypes.management import create_contenttypes
 from django.db.models.signals import post_migrate
-from kante.context import HttpContext, UniversalRequest
+from kante.context import HttpContext, UniversalRequest, WsContext
 from strawberry.http.temporal_response import TemporalResponse
 
 
@@ -158,6 +161,76 @@ def other_org_context(db, backend_stack) -> HttpContext:
         headers={"Authorization": "Bearer othertest"},
         type="http",
     )
+
+
+@pytest.fixture(scope="function")
+def same_org_other_user_context(db, backend_stack) -> HttpContext:
+    """A context for a *different* user in the same organization (static token "test2")."""
+    user, _ = User.objects.get_or_create(sub="2", iss="static_issuer", defaults={"username": "static_issuer_2"})
+    client, _ = Client.objects.get_or_create(client_id="oinsoins")
+    org, _ = Organization.objects.get_or_create(slug="static_org")
+    membership, _ = Membership.objects.get_or_create(user=user, organization=org)
+
+    request = UniversalRequest(
+        _extensions={"token": "test2"},
+        _client=client,  # type: ignore
+        _user=user,  # type: ignore
+        _organization=org,  # type: ignore
+    )
+    request.set_membership(membership)  # type: ignore
+
+    return HttpContext(
+        request=request,
+        response=TemporalResponse(),
+        headers={"Authorization": "Bearer test2"},
+        type="http",
+    )
+
+
+@pytest_asyncio.fixture
+async def ws_contexts(authenticated_context):
+    """A factory for websocket contexts, for testing subscriptions in-process.
+
+    Each context gets its own ``ChannelsConsumer`` bound to the in-memory
+    channel layer, plus a pump task that feeds the layer's messages into the
+    consumer's listen queues (what the real websocket handler would do). One
+    consumer per subscriber, because ``listen_to_channel`` discards the group
+    on exit and would silence a second subscriber sharing the consumer.
+    """
+    from channels.layers import get_channel_layer
+    from strawberry.channels import ChannelsConsumer
+
+    layer = get_channel_layer()
+    # The in-memory layer is a process-wide singleton; drop state left behind
+    # by earlier tests (and their event loops).
+    await layer.flush()
+    pumps = []
+
+    async def make(token: str = "test") -> WsContext:
+        consumer = ChannelsConsumer()
+        consumer.channel_layer = layer
+        consumer.channel_name = await layer.new_channel()
+
+        async def pump():
+            while True:
+                await consumer.dispatch(await layer.receive(consumer.channel_name))
+
+        pumps.append(asyncio.create_task(pump()))
+        # The AuthentikateExtension authenticates a WsContext from
+        # connection_params["token"] and fills in user/client/organization.
+        return WsContext(
+            request=UniversalRequest(_extensions={"token": token}),
+            response=TemporalResponse(),
+            connection_params={"token": token},
+            consumer=consumer,
+        )
+
+    yield make
+
+    for task in pumps:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 @pytest.fixture(scope="function")

@@ -1,6 +1,8 @@
 [project]
 name = "alpaka-server"
-version = "1.0.1"
+# Placeholder only — the git tag is authoritative. Releases are tag-only,
+# so semantic-release does not update this field. See [tool.semantic_release].
+version = "2.0.0-rc.11"
 description = ""
 authors = [{ name = "jhnnsrs", email = "jhnnsrs@gmail.com" }]
 requires-python = ">=3.12,<4"
@@ -12,8 +14,8 @@ dependencies = [
     "daphne>=4.0.0,<5",
     "channels-redis>=4.1.0,<5",
     "django-choices-field>=3",
-    "authentikate>=2.1.2",
-    "kante>=1.1.0",
+    "authentikate>=4.1.0",
+    "kante>=2.1.1",
     "ujson>=5.8.0,<6",
     "aioredis>=2.0.1,<3",
     "jsonpatch~=1.33",
@@ -30,6 +32,7 @@ dependencies = [
     "ollama>=0.4.8",
     "chromadb>=1.0.8",
     "django-health-check>=3.20.0",
+    "whitenoise>=6.6",
 ]
 
 [dependency-groups]
@@ -38,7 +41,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "python-semantic-release>=9.21.0",
     "django-stubs>=5.2.0",
-    "dokker>=2.5",
+    "dokker>=2.8",
     "moto>=5.1.11",
     "mypy>=1.15.0",
     "pytest-asyncio>=1.1.0",
@@ -96,12 +99,17 @@ target-version = "py312"
 
 [tool.semantic_release]
 # This server is deployed as Docker images, not a PyPI package — so a release
-# just bumps the version, writes the changelog, tags, and cuts a GitHub Release.
-# No wheel is built and nothing is uploaded to PyPI.
-version_toml = ["pyproject.toml:project.version"]
-upload_to_pypi = false
+# just tags the commit and cuts a GitHub Release. No wheel is built and nothing
+# is uploaded to PyPI.
+#
+# Releases are tag-only: the workflow passes `commit: false` / `changelog: false`,
+# so semantic-release never writes back to the branch. That is what keeps `main`
+# and `next` from diverging on the version line. Consequences, deliberate:
+#   - no `version_toml`: the git tag is the sole version source, and the
+#     `version` field under [project] above is an inert placeholder.
+#   - no `commit_message`: dead config when nothing is committed.
+#   - the docker job reads `steps.release.outputs.tag`, so images are unaffected.
 build_command = ""
-commit_message = "chore(release): v{version} [skip ci]"
 
 # main -> stable X.Y.Z releases. next -> prereleases X.Y.Z-rc.N.
 [tool.semantic_release.branches.main]

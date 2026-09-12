@@ -21,21 +21,21 @@ def seed():
 
     structure = models.Structure.objects.create(identifier="some/structure", object=42)
 
-    room = models.Room.objects.create(title="Weather room", organization=org, creator=user)
+    room = models.Room.objects.for_write().create(title="Weather room", organization=org, creator=user)
     room.contextual_structures.add(structure)
 
-    other_room = models.Room.objects.create(title="Cooking room", organization=org, creator=user)
+    other_room = models.Room.objects.for_write().create(title="Cooking room", organization=org, creator=user)
 
-    agent = models.Agent.objects.create(room=room, client=client, user=user)
+    agent = models.Agent.objects.for_write().create(room=room, client=client, user=user)
 
     base = timezone.now()
     texts = ["hello world", "goodbye world", "hello again"]
     messages = []
     for i, text in enumerate(texts):
-        message = models.Message.objects.create(room=room, agent=agent, text=text)
+        message = models.Message.objects.for_write().create(room=room, agent=agent, text=text)
         # auto_now_add fixes created_at on insert; overwrite it so ordering is
         # deterministic regardless of how fast the inserts ran.
-        models.Message.objects.filter(id=message.id).update(created_at=base + datetime.timedelta(seconds=i))
+        models.Message.objects.for_write().filter(id=message.id).update(created_at=base + datetime.timedelta(seconds=i))
         messages.append(message)
 
     return {
@@ -220,14 +220,14 @@ async def test_room_filter_talking_about(aexecute):
 
     match = await aexecute(
         query,
-        {"filters": {"talkingAbout": {"identifier": "some/structure", "object": "42"}}},
+        {"filters": {"talkingAbout": {"identifier": "some/structure", "object": 42}}},
     )
     assert match.data, match.errors
     assert [r["title"] for r in match.data["rooms"]] == ["Weather room"]
 
     miss = await aexecute(
         query,
-        {"filters": {"talkingAbout": {"identifier": "unknown", "object": "1"}}},
+        {"filters": {"talkingAbout": {"identifier": "unknown", "object": 1}}},
     )
     assert miss.data is not None, miss.errors
     assert miss.data["rooms"] == []
