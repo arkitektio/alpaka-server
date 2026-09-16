@@ -53,7 +53,12 @@ class Room(models.Model):
 
 
 class Agent(models.Model):
-    room = models.ForeignKey(Room, on_delete=models.CASCADE)
+    room = models.ForeignKey(
+        Room,
+        on_delete=models.CASCADE,
+        related_name="agents",
+        help_text="The room this agent participates in",
+    )
     name = models.CharField(max_length=10000, null=True)
     client = models.ForeignKey(Client, on_delete=models.CASCADE)
     user = models.ForeignKey(

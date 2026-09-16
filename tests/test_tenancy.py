@@ -310,3 +310,17 @@ async def test_federation_entities_do_not_leak_across_organizations(aexecute, ot
     theirs = await aexecute(query, {"reps": reps}, context=other_org_context)
     leaked = [e for e in (theirs.data or {}).get("_entities") or [] if e and (e.get("title") or e.get("text"))]
     assert not leaked, f"_entities handed rows to another organization: {leaked}"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_room_lists_its_agents(aexecute):
+    """``Room.agents`` resolves through the reverse FK (regression: ``agent_set`` mismatch)."""
+    seeded = await seed_static_org()
+    query = "query($id: ID!) { room(id: $id) { id agents { id room { id } } } }"
+
+    result = await aexecute(query, {"id": str(seeded["room"].id)})
+    assert result.data, result.errors
+    agents = result.data["room"]["agents"]
+    assert [a["room"]["id"] for a in agents] == [str(seeded["room"].id)]
+    assert len(agents) == 1
