@@ -1,7 +1,9 @@
 import strawberry
 import strawberry_django
 from django.db.models import Q, QuerySet
+from embeddings.search import hybrid_search
 from kammer import models
+from kante.types import Info
 from strawberry import auto
 from vector import inputs as vector_inputs
 
@@ -50,9 +52,10 @@ class RoomFilter:
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}id__in": value})
 
-    @strawberry_django.filter_field
-    def search(self, value: str, prefix: str) -> Q:
-        return Q(**{f"{prefix}title__icontains": value})
+    @strawberry_django.filter_field(description="Search by title: a case-insensitive substring, or semantic similarity of the query to the room's title and description. Substring matches rank first, then by similarity; an explicit `ordering` replaces that ranking.")
+    def search(self, info: Info, queryset: QuerySet, value: str, prefix: str) -> tuple[QuerySet, Q]:
+        """Annotate the distance and OR the semantic predicate onto the substring one."""
+        return hybrid_search(queryset, prefix, value, Q(**{f"{prefix}title__icontains": value}))
 
     @strawberry_django.filter_field
     def talking_about(

@@ -2,6 +2,7 @@ from alpaka_server.scoping import OrganizationScopedManager
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 from authentikate.models import Client, User, Organization
 from koherent.fields import ProvenanceField
 
@@ -16,7 +17,11 @@ class Structure(models.Model):
     object = models.PositiveIntegerField(help_text="The object id of the object, on its associated service")
 
 
-class Room(models.Model):
+class Room(EmbeddedDescriptionMixin, models.Model):
+    """A conversation; embeds its title + description so the room list's ``search`` finds it by topic."""
+
+    embedding_source_fields = ("title", "description")
+
     title = models.CharField(max_length=1000, help_text="The Title of the Room")
     description = models.CharField(max_length=10000, null=True)
     creator = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
@@ -40,6 +45,8 @@ class Room(models.Model):
     class Meta:
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
+        # The embedding healer's "any row not by the current model?" probe.
+        indexes = [*embedding_indexes("room")]
 
     @property
     def messages(self):

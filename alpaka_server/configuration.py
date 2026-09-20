@@ -108,6 +108,24 @@ class ProviderPartnerConfigModel(BaseModel):
     partners: List[ProviderPartnerModel] = Field(default_factory=list)
 
 
+class EmbeddingsSettings(BaseModel):
+    """Semantic search: a model2vec static model embeds name + description into pgvector columns.
+
+    Every value has a default, so the block may be omitted. The vector width is fixed by the
+    model *and* by the database columns; see CONFIG.md before changing ``model``.
+    """
+
+    model_config = ConfigDict(extra="allow", protected_namespaces=())
+
+    enabled: bool = Field(default=True, description="Embed rows on save and give `search` a semantic leg. Off: `search` is lexical-only and the embedding columns stay NULL.")
+    model: str = Field(default="minishlab/potion-base-8M", description="model2vec model id. Recorded on every row; rows embedded by another model are re-embedded in-process and skipped by vector search until then.")
+    model_path: Optional[str] = Field(default=None, description="Directory holding the weights of `model` (save_pretrained layout). The Docker image bakes them under /opt/models and sets EMBEDDINGS__MODEL_PATH; unset, model2vec downloads from Hugging Face on first use.")
+    dimensions: int = Field(default=256, description="Vector width of `model`. Also the width of the database columns, so changing it is a migration. Checked against both at startup.")
+    distance_threshold: float = Field(default=0.55, description="Cosine distance (0 identical, 1 unrelated) above which a row no longer counts as a semantic `search` hit.")
+    sweep_interval: int = Field(default=30, description="Seconds between in-process passes that re-embed rows whose `embedding_model` is not `model`.")
+    sweep_batch_size: int = Field(default=200, description="Rows re-embedded per pass.")
+
+
 class Settings(BaseSettings):
     """Top-level, validated configuration for the alpaka service."""
 
@@ -118,6 +136,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(description="Redis connection.")
     authentikate: AuthentikateSettings = Field(description="Token-verification config (authentikate).")
     provider_partners: List[ProviderPartnerModel] = Field(default_factory=list, description="Pre-declared LLM providers; those with auto_configure are provisioned for every new organization.")
+    embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings, description="Semantic search over rooms and collections: model and thresholds. Unrelated to the document embeddings of the Chroma collections, which use the collection's own LLM embedder.")
 
     @model_validator(mode="before")
     @classmethod

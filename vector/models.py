@@ -1,10 +1,17 @@
 # api/models.py
 from alpaka_server.scoping import OrganizationScopedManager
 from django.db import models
+from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 from authentikate.models import User, Organization
 
 
-class ChromaCollection(models.Model):
+class ChromaCollection(EmbeddedDescriptionMixin, models.Model):
+    """A Chroma document collection's metadata row; embeds its name + description for ``search``.
+
+    The collection's *documents* are embedded by its own LLM ``embedder`` and live in Chroma;
+    this row's vector describes the collection itself.
+    """
+
     name = models.CharField(max_length=100, help_text="The human-readable name of the collection, unique within its organization")
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -25,6 +32,8 @@ class ChromaCollection(models.Model):
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
         unique_together = ("organization", "name")
+        # The embedding healer's "any row not by the current model?" probe.
+        indexes = [*embedding_indexes("chroma_collection")]
 
     def __str__(self):
         return self.name

@@ -79,3 +79,13 @@ def test_django_admin_setting_is_exposed_as_dict():
     conf = Settings()
     expected = conf.django.admin.model_dump() if conf.django.admin else None
     assert settings.DJANGO_ADMIN == expected
+
+
+def test_embeddings_block_defaults_and_override(monkeypatch):
+    """The ``embeddings`` block defaults to potion-base-8M at 256 dims and is env-overridable."""
+    s = Settings()
+    assert s.embeddings.enabled is True
+    assert s.embeddings.model == "minishlab/potion-base-8M"
+    assert s.embeddings.dimensions == 256
+    monkeypatch.setenv("EMBEDDINGS__DISTANCE_THRESHOLD", "0.42")
+    assert Settings().embeddings.distance_threshold == 0.42

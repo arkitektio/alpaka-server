@@ -48,7 +48,30 @@ def backend_stack():
                     raise
                 time.sleep(0.2)
 
+        # The suite builds its schema with run-syncdb (migrations disabled), so the
+        # `vector` extension migrations never run here -- but CREATE TABLE for the
+        # embedding columns (Room / ChromaCollection.embedding) needs the type to exist.
+        # Install it into template1 so the test database pytest-django creates from it
+        # inherits it, and into testdb itself for anything connecting directly.
+        for dbname in ("template1", "testdb"):
+            with psycopg.connect(dbname=dbname, user="test", password="test", host="localhost", port=5555, autocommit=True) as connection:
+                connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
         yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def embedding_model_warm():
+    """Load the embedding model once per session, outside any test's DB transaction.
+
+    Every save of a Room / ChromaCollection embeds its text, so the first one would otherwise
+    pay the model load (a one-time download into the Hugging Face cache on a cold box) inside
+    a test.
+    """
+    from embeddings import engine
+
+    engine.warm_up()
+    yield
 
 
 @pytest.fixture(scope="session")

@@ -158,6 +158,29 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+# Semantic search (the vendored ``embeddings`` package) over the rows users browse: rooms
+# (title + description) and Chroma collections (their name + description -- the collection
+# *metadata*, not the documents inside, which Chroma embeds with the collection's own LLM
+# embedder). A model2vec static model runs in this process (no service, no GPU, ~1 ms per
+# row) and fills a pgvector column on save; the filters' ``search`` ORs "cosine distance
+# below DISTANCE_THRESHOLD" onto the substring match. DIMENSIONS is also the width of the
+# database columns: the ``embeddings`` system checks refuse to start when the model, this
+# setting and a column disagree. Rows filled by another model are re-embedded by an
+# in-process loop (see ``alpaka_server/asgi.py``), never by a command.
+EMBEDDINGS = {
+    "ENABLED": conf.embeddings.enabled,
+    "MODEL": conf.embeddings.model,
+    "MODEL_PATH": conf.embeddings.model_path,
+    "DIMENSIONS": conf.embeddings.dimensions,
+    "DISTANCE_THRESHOLD": conf.embeddings.distance_threshold,
+    "SWEEP_INTERVAL": conf.embeddings.sweep_interval,
+    "SWEEP_BATCH_SIZE": conf.embeddings.sweep_batch_size,
+}
+# The in-process healer that re-embeds stale rows. Off under the test suite, which calls
+# ``embeddings.healer.reembed_stale`` directly so a background pass never races an assertion.
+EMBEDDINGS_HEALER_ENABLED = True
+
+
 AUTHENTIKATE = conf.authentikate.model_dump()
 
 
