@@ -66,7 +66,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="chromacollection",
-            index=models.Index(fields=["embedding_model"], name="chroma_collection_emb_model_idx"),
+            index=models.Index(fields=["embedding_model"], name="chroma_coll_emb_model_idx"),
         ),
         migrations.RunPython(backfill_embeddings, migrations.RunPython.noop),
     ]

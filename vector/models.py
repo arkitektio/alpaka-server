@@ -33,7 +33,7 @@ class ChromaCollection(EmbeddedDescriptionMixin, models.Model):
         default_manager_name = "all_objects"
         unique_together = ("organization", "name")
         # The embedding healer's "any row not by the current model?" probe.
-        indexes = [*embedding_indexes("chroma_collection")]
+        indexes = [*embedding_indexes("chroma_coll")]
 
     def __str__(self):
         return self.name
