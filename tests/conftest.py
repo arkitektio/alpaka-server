@@ -6,7 +6,7 @@ import time
 import psycopg
 import pytest
 import pytest_asyncio
-from dokker import testing
+from dokker import PortNotFoundError, testing
 
 from authentikate.models import Client, Membership, Organization, User
 from django.contrib.contenttypes.management import create_contenttypes
@@ -15,35 +15,57 @@ from kante.context import HttpContext, UniversalRequest, WsContext
 from strawberry.http.temporal_response import TemporalResponse
 
 
+def _wait_for_port(e, service: str, container_port: int, deadline_seconds: float = 30.0) -> int:
+    """The host port docker published for ``service:container_port``, once the container is up."""
+    deadline = time.monotonic() + deadline_seconds
+    while True:
+        try:
+            return e.get_port(service, container_port)
+        except PortNotFoundError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
+
+
 @pytest.fixture(scope="session")
 def backend_stack():
     docker_compose_path = os.path.join(os.path.dirname(__file__), "integration", "docker-compose.yaml")
 
+    # No `down()` before `up()`: `testing()` mints a fresh `dokker-test-<uuid>` project
+    # every call, so downing it would only tear down the empty project this run just
+    # named, never a predecessor. It read as protection and was a no-op.
     with testing(docker_compose_path) as e:
-        e.inspect()
-
-        e.down()
-
         e.up()
 
         # Compose only waits for postgres' container to *start*, not for it to
         # accept connections, so poll until it answers before pytest-django
         # configures the test DB against it.
+        # The host port is *not* fixed: the compose file publishes 5432 with no host port,
+        # so docker assigns a free one per run and this asks the running stack which it
+        # got. That is the whole isolation story -- dokker mints a unique compose project
+        # per run, but a pinned host port defeats it: two projects still cannot both bind
+        # one host port, so every suite under mounts/ that pinned the same one collided
+        # with its siblings and with any stack a crashed run left behind. `get_port` is
+        # resolved inside the retry loop because `up()` can return before the container
+        # is running.
+        db_port = None
         deadline = time.monotonic() + 30
         while True:
             try:
+                if db_port is None:
+                    db_port = e.get_port("db", 5432)
                 with psycopg.connect(
                     dbname="testdb",
                     user="test",
                     password="test",
                     host="localhost",
-                    port=5555,
+                    port=db_port,
                     connect_timeout=1,
                 ) as connection:
                     with connection.cursor() as cursor:
                         cursor.execute("SELECT 1")
                 break
-            except psycopg.OperationalError:
+            except (psycopg.OperationalError, PortNotFoundError):
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.2)
@@ -54,10 +76,10 @@ def backend_stack():
         # Install it into template1 so the test database pytest-django creates from it
         # inherits it, and into testdb itself for anything connecting directly.
         for dbname in ("template1", "testdb"):
-            with psycopg.connect(dbname=dbname, user="test", password="test", host="localhost", port=5555, autocommit=True) as connection:
+            with psycopg.connect(dbname=dbname, user="test", password="test", host="localhost", port=db_port, autocommit=True) as connection:
                 connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-        yield
+        yield {"db": db_port}
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -76,7 +98,16 @@ def embedding_model_warm():
 
 @pytest.fixture(scope="session")
 def django_db_modify_db_settings(backend_stack):
-    """Start the backend services before pytest-django configures the test DB."""
+    """Start the backend services, and point Django at the ports they came up on.
+
+    pytest-django calls this before creating the test database, which is the only window
+    in which the port can be set: `settings_test` is imported long before any fixture runs,
+    so it cannot know a port docker had not assigned yet. Its `PORT` is a placeholder for a
+    hand-started stack; under pytest this is what decides where the connection goes.
+    """
+    from django.conf import settings
+
+    settings.DATABASES["default"]["PORT"] = str(backend_stack["db"])
     yield
 
 

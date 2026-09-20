@@ -1,3 +1,4 @@
+import os
 from .settings import *  # noqa
 from .settings import AUTHENTIKATE, DATABASES
 import logging
@@ -11,7 +12,10 @@ DATABASES["default"] = {
     "USER": "test",
     "PASSWORD": "test",
     "HOST": "localhost",
-    "PORT": "5555",
+    # A placeholder for a hand-started stack; under pytest `django_db_modify_db_settings`
+    # overwrites it with the port docker picked (see tests/conftest.py). Point
+    # ALPAKA_TEST_DB_PORT at `docker compose port db 5432` to run against your own stack.
+    "PORT": os.environ.get("ALPAKA_TEST_DB_PORT", "5555"),
 }
 AUTHENTIKATE = {
     **AUTHENTIKATE,
