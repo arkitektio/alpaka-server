@@ -7,6 +7,7 @@ in each app's ``graphql/queries`` package rather than declared directly.
 """
 
 import strawberry
+from alpaka_server.logs import QuietErrorsSchema
 import strawberry_django
 from authentikate.strawberry.extension import AuthentikateExtension
 from koherent.strawberry.extension import KoherentExtension
@@ -104,7 +105,11 @@ class Subscription:
     room = strawberry.subscription(resolver=kammer_subscriptions.room, description="Join a room and receive its events: messages created, streamed into and finished, and agents joining or leaving")
 
 
-schema = strawberry.federation.Schema(
+class Schema(QuietErrorsSchema, strawberry.federation.Schema):
+    """strawberry.federation.Schema, logging expected resolver errors as one line and bugs with a traceback (see logs.py)."""
+
+
+schema = Schema(
     query=Query,
     mutation=Mutation,
     subscription=Subscription,

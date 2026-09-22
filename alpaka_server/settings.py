@@ -11,7 +11,9 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 from .configuration import Settings
+from .logs import build_logging
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -230,3 +232,11 @@ PROVIDER_PARTNERS = [p.model_dump(mode="json") for p in conf.provider_partners]
 # dict because Django settings only expose UPPERCASE names; the command
 # re-validates it, the same way ensurepartners does for PROVIDER_PARTNERS.
 DJANGO_ADMIN = conf.django.admin.model_dump() if conf.django.admin else None
+
+
+# Console logging: one plain line per record on root; see logs.py. ``LOG_LEVEL=DEBUG``
+# (env) brings back per-event detail; ``django.enable_rich_logging`` renders with rich.
+LOGGING = build_logging(
+    level=os.environ.get("LOG_LEVEL", conf.django.log_level),
+    rich=conf.django.enable_rich_logging,
+)
