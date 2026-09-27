@@ -25,3 +25,24 @@ services:
       image: redis
       ports:
          - 6379
+   ollaya:
+      # A real Ollaya (decision-model runtime, systemone wire protocol), CPU build. Models are
+      # cached in the external volume `alpaka-test-ollaya` (created by `backend_stack`): dokker
+      # mints a fresh compose project per run, so a project-scoped volume would re-download
+      # the ~680 MB test model every run.
+      image: ghcr.io/ollaya-dev/ollaya:latest
+      volumes:
+        - ollaya-models:/home/ollaya/.ollaya/models
+      ports:
+        - 11435
+   faketypesafe:
+      # A stand-in for api.typesafe.ai: bearer auth, aliases, 429/529 on demand, the hosted
+      # service's validation limits. Built locally, never pulled.
+      build: ./faketypesafe
+      ports:
+        - 8000
+
+volumes:
+   ollaya-models:
+      external: true
+      name: alpaka-test-ollaya

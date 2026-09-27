@@ -36,6 +36,9 @@ from llm.usage import BudgetExceeded, aenforce_budget, arecord_usage, usage_from
 
 logger = logging.getLogger(__name__)
 
+#: Where a client that sent a decision model to an OpenAI route should go instead.
+DECISION_ENDPOINT_HINT = "the systemone endpoint (llm/systemone/v1/systemone) or the decide mutation"
+
 
 class AuthenticationError(Exception):
     """Raised when authentication fails."""
@@ -135,6 +138,7 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
     - "alpaka/default" - Uses default text_generation model
     - "alpaka/default-chat" - Uses default text_generation model
     - "alpaka/default-embedding" - Uses default embedding model
+    - "alpaka/default-decision" - Uses default decision model
 
     Args:
         model_identifier: Either a database ID, model_id string, or special pattern
@@ -162,6 +166,8 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
             kind = DefaultKind.EMBEDDING
         elif suffix == "-image":
             kind = DefaultKind.IMAGE_GENERATION
+        elif suffix == "-decision":
+            kind = DefaultKind.DECISION
 
         if kind is not None:
             try:
@@ -197,8 +203,11 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
 
 @sync_to_async
 def get_all_models_for_organization(organization: Organization) -> list[llm_models.LLMModel]:
-    """Get all available models for an organization."""
-    return list(llm_models.LLMModel.objects.for_organization(organization).select_related("provider"))
+    """Get the models an OpenAI client can call: every model except decision models.
+
+    Decision models have their own listing under ``systemone/v1/models``.
+    """
+    return [model for model in llm_models.LLMModel.objects.for_organization(organization).select_related("provider") if not model.is_decision_model]
 
 
 @sync_to_async
@@ -295,7 +304,8 @@ async def openai_model_detail_view(request: HttpRequest, model_id: str) -> JsonR
         logger.exception("Could not resolve model %r", model_id)
         return create_openai_error_response(f"Could not resolve model: {e}", error_type="api_error", status=500)
 
-    if not model:
+    if not model or model.is_decision_model:
+        # Decision models are hidden from the OpenAI listing, so they are not found here either.
         return create_openai_error_response(f"Model '{model_id}' not found", error_type="invalid_request_error", code="model_not_found", status=404)
 
     return JsonResponse(model_to_openai_format(model))
@@ -361,6 +371,8 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         if not model:
             return create_openai_error_response("No model specified and no default model configured", error_type="invalid_request_error", param="model", status=400)
 
+    if model.is_decision_model:
+        return create_openai_error_response(f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}", error_type="invalid_request_error", code="model_not_generative", param="model", status=400)
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 
@@ -596,6 +608,8 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
         if not model:
             return create_openai_error_response("No model specified and no default model configured", error_type="invalid_request_error", param="model", status=400)
 
+    if model.is_decision_model:
+        return create_openai_error_response(f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}", error_type="invalid_request_error", code="model_not_generative", param="model", status=400)
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 
@@ -695,6 +709,8 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         if not model:
             return create_openai_error_response("No model specified and no default embedding model configured", error_type="invalid_request_error", param="model", status=400)
 
+    if model.is_decision_model:
+        return create_openai_error_response(f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}", error_type="invalid_request_error", code="model_not_generative", param="model", status=400)
     if not model.is_available:
         return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
 

@@ -1,4 +1,5 @@
 from django.urls import path, re_path
+from .decision.views import systemone_models_view, systemone_view
 from .views import (
     # OpenAI-compatible endpoints
     openai_models_view,
@@ -23,6 +24,9 @@ urlpatterns = [
     path("v1/completions/", openai_completions_view, name="openai_completions_slash"),
     path("v1/embeddings", openai_embeddings_view, name="openai_embeddings"),
     path("v1/embeddings/", openai_embeddings_view, name="openai_embeddings_slash"),
+    # systemone-compatible decision API: TYPESAFE_BASE_URL=<alpaka>/llm/systemone
+    path("systemone/v1/systemone", systemone_view, name="systemone"),
+    path("systemone/v1/models", systemone_models_view, name="systemone_models"),
     # Legacy Ollama-style endpoints (kept for backward compatibility)
     path("models/", models_view, name="legacy_models"),
     path("generate/", generate_view, name="legacy_generate"),

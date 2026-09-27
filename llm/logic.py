@@ -3,7 +3,8 @@ import logging
 import aiohttp
 import litellm
 from .models import Provider, ProviderPartner, LLMModel
-from .enums import ProviderKind
+from .decision import backend_for, is_decision_kind
+from .enums import FeatureType, ProviderKind
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,9 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
 
     provider_kind = provider.kind
 
+    if is_decision_kind(provider_kind):
+        return await arefresh_decision_models(provider)
+
     if provider_kind == ProviderKind.OLLAMA.value:
         timeout = aiohttp.ClientTimeout(total=LIST_MODELS_TIMEOUT_SECONDS)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -182,4 +186,27 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
         except Exception as e:
             raise Exception(f"Failed to list models for {provider_kind} provider: {e}")
 
+    return new_models
+
+
+async def arefresh_decision_models(provider: Provider) -> list[LLMModel]:
+    """List a decision provider's models through its backend.
+
+    They are tagged ``decision`` only -- never ``chat`` -- so the litellm paths
+    reject them and ``decide`` accepts them.
+    """
+    backend = backend_for(provider)
+    new_models = []
+    for info in await backend.list_models(provider):
+        obj, _ = await LLMModel.objects.for_write().aupdate_or_create(
+            provider=provider,
+            model_id=info.name,
+            defaults={
+                "label": f"{backend.label} - {info.name}",
+                "features": [FeatureType.DECISION.value],
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+            },
+        )
+        new_models.append(obj)
     return new_models

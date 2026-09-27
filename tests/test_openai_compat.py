@@ -32,7 +32,7 @@ FAKE_PROVIDER = types.SimpleNamespace(
 )
 FAKE_MODEL = types.SimpleNamespace(
     llm_string="openrouter/gpt-4", model_id="gpt-4",
-    provider=FAKE_PROVIDER, is_available=True,
+    provider=FAKE_PROVIDER, is_available=True, is_decision_model=False,
 )
 
 

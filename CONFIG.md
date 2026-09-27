@@ -229,6 +229,44 @@ Rules:
   (note that `auto_configure` then defaults to `false`).
 - If `provider_partners` is also set, `providers` is ignored entirely.
 
+#### Decision providers (TypeSafe, Ollaya)
+
+Two provider kinds serve **decision models** rather than LLMs. A decision model answers typed
+questions (`noul`, `choice`, `score`) about one state and returns calibrated probabilities.
+Both kinds speak the systemone wire protocol, so they are configured like any other provider
+and differ only in where they run:
+
+| `kind` | Runtime | Default `api_base` | Key |
+|---|---|---|---|
+| `typesafe` | TypeSafe's hosted API (Jev) | `https://api.typesafe.ai` | required |
+| `ollaya` | a self-hosted [Ollaya](https://ollaya.dev) daemon | `http://ollaya:11435` | only if the daemon sets `OLLAYA_API_KEY` |
+
+Their models are listed with the `decision` feature and are reachable only through the
+`decide` mutation and `llm/systemone/v1/…`. They never appear on the OpenAI routes. Input
+tokens are priced for `typesafe` ($0.042 per 1M tokens) and are free for `ollaya`, so cost
+budgets apply to both.
+
+```yaml
+providers:
+  - typesafe: "ts-..."          # hosted Jev only: the shorthand is enough
+```
+
+```yaml
+provider_partners:              # a keyless Ollaya has no api_key for the shorthand,
+  - name: Ollaya                # so it takes the full form (and then so does everything else)
+    identifier: ollaya
+    kind: ollaya
+    api_base: http://ollaya:11435
+    auto_configure: true
+  - name: TypeSafe
+    identifier: typesafe
+    kind: typesafe
+    api_key: "ts-..."
+    auto_configure: true
+```
+
+Pull a model into an Ollaya provider with `pull(input: {provider: <id>, modelName: "laya:en"})`.
+
 ---
 
 ### `embeddings` — semantic search
@@ -249,7 +287,7 @@ Every key has a default; the block may be omitted.
 | `model_path` | `EMBEDDINGS__MODEL_PATH` | str | `null` | Directory holding the weights of `model`. The Docker image bakes them under `/opt/models/embeddings` and sets this itself (with `HF_HUB_OFFLINE=1`); unset, model2vec downloads from Hugging Face on first use. |
 | `dimensions` | `EMBEDDINGS__DIMENSIONS` | int | `256` | Vector width of `model` — and of the database columns. Checked against both at startup (`embeddings.E001` / `E002`). |
 | `distance_threshold` | `EMBEDDINGS__DISTANCE_THRESHOLD` | float | `0.55` | Cosine distance (0 identical, 1 unrelated) above which a row no longer counts as a semantic hit. Lower is stricter. |
-| `sweep_interval` | `EMBEDDINGS__SWEEP_INTERVAL` | int | `30` | Seconds between passes of the in-process healer that re-embeds stale rows. |
+| `sweep_interval` | `EMBEDDINGS__SWEEP_INTERVAL` | int | `300` | How often the hub's rekuest runs `reembed_stale`, which re-embeds stale rows (the default schedule this service declares; needs `rekuest_hook`). |
 | `sweep_batch_size` | `EMBEDDINGS__SWEEP_BATCH_SIZE` | int | `200` | Rows re-embedded per batch. |
 
 Rows that were written before embeddings were enabled, while the model could not be loaded,
@@ -271,6 +309,31 @@ The Docker image bakes the default model; a different `model` needs a rebuild wi
 image is offline.
 
 ---
+
+### `rekuest_hook` — periodic work run by the hub's rekuest (optional)
+
+This service as a HookAgent of the hub's rekuest (vendored `rekuest_service` package, mounted at
+`_rekuest/hook`; keep that path off the public edge). rekuest must list it under
+`rekuest.service_agents`; it then runs `reembed_stale` every
+`embeddings.sweep_interval` seconds. Without this block stale embeddings are not healed.
+
+| Key | Env var | Type | Default | Description |
+|---|---|---|---|---|
+| `rekuest_url` | `REKUEST_HOOK__REKUEST_URL` | str | `http://rekuest:80/rekuest` | rekuest on the internal network; runs are reported to its intake. |
+| `service` | `REKUEST_HOOK__SERVICE` | str | `alpaka` | The name rekuest knows this service by (`rekuest.service_agents[].service`); signals are sent as it. |
+| `max_skew` | `REKUEST_HOOK__MAX_SKEW` | int | `30` | Clock skew (seconds) tolerated on a signed request; tokens live 60 s. |
+
+### `instance` — this instance's key and the hub trust bundle
+
+No shared secrets: requests between this service and rekuest carry short-lived JWTs signed with
+each side's instance key, checked against the hub's trust bundle (the coord-vouched public keys
+of every instance). Konstruktor mints the key and enrolls its public half with the coord.
+
+| Key | Env var | Type | Default | Description |
+|---|---|---|---|---|
+| `private_key` | `INSTANCE__PRIVATE_KEY` | str | — | Ed25519 private key (PKCS#8 PEM). Secret — must be set. |
+| `trust.jwks_uri` | `INSTANCE__TRUST__JWKS_URI` | str? | `null` | The coord's hub-keys URL (fakts `self.hub_keys_url`). |
+| `trust.jwks` | — | object? | `null` | Or the bundle inline, for a hub not enrolled yet. |
 
 ## Minimal example
 

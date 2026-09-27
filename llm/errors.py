@@ -11,6 +11,26 @@ import contextlib
 import litellm
 
 
+class WrongModelKind(Exception):
+    """Raised when a model is used for a task it cannot do.
+
+    Decision models answer typed questions and are unreachable through
+    litellm; generative models cannot answer ``decide``.
+    """
+
+
+def ensure_generative(model) -> None:
+    """Reject a decision model on a chat, completion, image or embedding path."""
+    if model.is_decision_model:
+        raise WrongModelKind(f"Model '{model.model_id}' is a decision model: it answers typed questions and cannot generate. Use the decide mutation or the systemone endpoint.")
+
+
+def ensure_decision(model) -> None:
+    """Reject a generative model on the decide paths."""
+    if not model.is_decision_model:
+        raise WrongModelKind(f"Model '{model.model_id}' is not a decision model. Pick a model from a decision provider (e.g. TypeSafe or Ollaya).")
+
+
 @contextlib.contextmanager
 def wrap_llm_errors(model):
     """Run an litellm call, re-raising failures with model/provider context.

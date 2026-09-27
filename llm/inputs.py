@@ -131,3 +131,60 @@ class DeleteBudgetInput:
     """The budget to remove."""
 
     id: strawberry.ID
+
+
+# --- DECISIONS ---
+
+
+@strawberry.input(description="A yes/no question or statement about the state")
+class NoulQuestionInput:
+    """Answered with the probability that the statement is true."""
+
+    key: str = strawberry.field(description="Your name for this question; the answer carries it back")
+    instructions: str = strawberry.field(description="The yes/no question or statement to evaluate")
+    if_true: Optional[str] = strawberry.field(default=None, description="What counts as a yes")
+    if_false: Optional[str] = strawberry.field(default=None, description="What counts as a no")
+
+
+@strawberry.input(description="One option a choice question can pick")
+class ChoiceOptionInput:
+    """A named option, optionally described."""
+
+    key: str = strawberry.field(description="The option's name; the answer picks one of these")
+    description: Optional[str] = strawberry.field(default=None, description="When this option applies; without one the option is read by its name alone")
+
+
+@strawberry.input(description="A question that picks one of several named options")
+class ChoiceQuestionInput:
+    """Answered with the most probable option and the probability of each."""
+
+    key: str = strawberry.field(description="Your name for this question; the answer carries it back")
+    instructions: str = strawberry.field(description="What to decide when picking an option")
+    options: List[ChoiceOptionInput] = strawberry.field(description="The options to choose from")
+
+
+@strawberry.input(description="A question that rates the state on an ordered rubric")
+class ScoreQuestionInput:
+    """Answered with the expected level and the probability of each level."""
+
+    key: str = strawberry.field(description="Your name for this question; the answer carries it back")
+    instructions: str = strawberry.field(description="What to rate")
+    levels: List[str] = strawberry.field(description="Descriptions of the rubric levels, lowest first; a level's position is its score, starting at zero")
+
+
+@strawberry.input(one_of=True, description="A typed question: exactly one of noul, choice or score")
+class QuestionInput:
+    """One question of a decide request."""
+
+    noul: Optional[NoulQuestionInput] = strawberry.UNSET
+    choice: Optional[ChoiceQuestionInput] = strawberry.UNSET
+    score: Optional[ScoreQuestionInput] = strawberry.UNSET
+
+
+@strawberry.input(description="Typed questions to put to a decision model about one state")
+class DecideInput:
+    """A decide request: every question is answered about the same state, in one call."""
+
+    state: scalars.JSON = strawberry.field(description="The content the questions refer to: a string, a JSON object or an array")
+    questions: List[QuestionInput] = strawberry.field(description="The questions to answer; their keys must be unique")
+    model: strawberry.ID | None = strawberry.field(default=None, description="The decision model to ask; defaults to the caller's default for `decision`")

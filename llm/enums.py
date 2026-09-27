@@ -33,14 +33,16 @@ class ThinkingBlockType(str, Enum):
 class FeatureType(str, Enum):
     """A supported feature type for a large language model.
 
-    These are exactly the values ``llm.logic.detect_features`` writes onto
-    ``LLMModel.features``; a value missing from here breaks serialization of the
-    whole field, which is what ``"vision"`` used to do.
+    These are exactly the values ``llm.logic`` writes onto ``LLMModel.features``
+    (``detect_features`` for litellm providers, ``decision`` for the typed
+    decision backends in ``llm.decision``); a value missing from here breaks
+    serialization of the whole field, which is what ``"vision"`` used to do.
     """
 
     EMBEDDING = "embedding"
     CHAT = "chat"
     VISION = "vision"
+    DECISION = "decision"
 
 
 @strawberry.enum(description="A modality a model can read or emit")
@@ -66,6 +68,7 @@ class DefaultKind(str, Enum):
     TEXT_GENERATION = "text_generation"
     EMBEDDING = "embedding"
     IMAGE_GENERATION = "image_generation"
+    DECISION = "decision"
 
 
 @strawberry.enum(description="The kind of LLM provider")
@@ -93,6 +96,8 @@ class ProviderKind(str, Enum):
     CUSTOM = "custom"
     UNKNOWN = "unknown"
     OPENROUTER = "openrouter"
+    TYPESAFE = "typesafe"
+    OLLAYA = "ollaya"
 
 
 @strawberry.enum(description="The entry point an LLM call came through")
@@ -105,6 +110,8 @@ class UsageEndpoint(str, Enum):
     REST_COMPLETION = "rest_completion"
     REST_EMBEDDING = "rest_embedding"
     VECTOR_EMBEDDING = "vector_embedding"
+    GRAPHQL_DECIDE = "graphql_decide"
+    REST_DECIDE = "rest_decide"
 
 
 @strawberry.enum(description="Whether an LLM call succeeded")
@@ -123,3 +130,4 @@ class BudgetPeriod(str, Enum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+

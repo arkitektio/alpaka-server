@@ -4,13 +4,17 @@ import strawberry
 from kante.types import Info
 
 from llm import inputs, logic, models, types
+from llm.decision import DECISION_BACKENDS
 from llm.redaction import REDACTED
 
 #: Providers whose endpoint is fixed and need not be supplied by the caller.
-#: Anything absent here must be given an explicit ``api_base``.
+#: Anything absent here must be given an explicit ``api_base``. Decision
+#: backends own their default, because auto-configured providers reach them
+#: without passing through this mutation.
 DEFAULT_API_BASE_MAP = {
     models.ProviderKind.OPENROUTER.value: "https://openrouter.ai/api/v1",
     models.ProviderKind.OLLAMA.value: "http://ollama:11434",
+    **{kind: backend.default_api_base for kind, backend in DECISION_BACKENDS.items()},
 }
 
 

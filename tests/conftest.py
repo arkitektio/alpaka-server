@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
 import os
+import subprocess
 import time
+import urllib.request
 
 import psycopg
 import pytest
@@ -27,9 +29,31 @@ def _wait_for_port(e, service: str, container_port: int, deadline_seconds: float
             time.sleep(0.2)
 
 
+#: The external volume the test Ollaya keeps its models in, across runs.
+OLLAYA_MODELS_VOLUME = "alpaka-test-ollaya"
+
+
+def _wait_for_http(e, service: str, container_port: int, path: str, deadline_seconds: float = 180.0) -> int:
+    """The host port of ``service``, once it answers ``path`` (the first run builds fakes)."""
+    deadline = time.monotonic() + deadline_seconds
+    port = None
+    while True:
+        try:
+            if port is None:
+                port = e.get_port(service, container_port)
+            urllib.request.urlopen(f"http://localhost:{port}{path}", timeout=1).read()
+            return port
+        except (PortNotFoundError, OSError):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
+
+
 @pytest.fixture(scope="session")
 def backend_stack():
     docker_compose_path = os.path.join(os.path.dirname(__file__), "integration", "docker-compose.yaml")
+    # Idempotent; the compose file declares the volume external so it outlives the run.
+    subprocess.run(["docker", "volume", "create", OLLAYA_MODELS_VOLUME], check=True, capture_output=True)
 
     # No `down()` before `up()`: `testing()` mints a fresh `dokker-test-<uuid>` project
     # every call, so downing it would only tear down the empty project this run just
@@ -79,7 +103,11 @@ def backend_stack():
             with psycopg.connect(dbname=dbname, user="test", password="test", host="localhost", port=db_port, autocommit=True) as connection:
                 connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-        yield {"db": db_port}
+        yield {
+            "db": db_port,
+            "ollaya": _wait_for_http(e, "ollaya", 11435, "/"),
+            "faketypesafe": _wait_for_http(e, "faketypesafe", 8000, "/_admin/health"),
+        }
 
 
 @pytest.fixture(scope="session", autouse=True)

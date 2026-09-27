@@ -2,6 +2,7 @@
 
 from .budget import create_budget, delete_budget, update_budget
 from .chat import chat
+from .decide import decide
 from .image import generate_image
 from .model import use_model_for
 from .provider import create_provider, delete_provider, refresh_provider, update_provider
@@ -11,6 +12,7 @@ __all__ = [
     "chat",
     "create_budget",
     "create_provider",
+    "decide",
     "delete_budget",
     "delete_provider",
     "generate_image",

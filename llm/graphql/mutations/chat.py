@@ -12,7 +12,7 @@ from kante.types import Info
 
 from llm import manager, models
 from llm.enums import DefaultKind, UsageEndpoint
-from llm.errors import wrap_llm_errors
+from llm.errors import ensure_generative, wrap_llm_errors
 from llm.usage import enforce_budget, track_usage
 from llm.inputs import ChatInput, ChatMessageInput, ToolInput
 from llm.types import ChatMessage, ChatResponse, Choice, FunctionCall, ThinkingBlock, ToolCall, Usage
@@ -182,6 +182,7 @@ def chat(info: Info, input: ChatInput) -> ChatResponse:
     """Send a chat message to the LLM and get a response."""
     chat_model = resolve_model(info, input.model, DefaultKind.TEXT_GENERATION)
 
+    ensure_generative(chat_model)
     if not chat_model.is_available:
         raise Exception(f"Model '{chat_model.llm_string}' is not currently available")
 

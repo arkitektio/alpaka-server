@@ -75,3 +75,23 @@ def test_same_partner_provisions_distinct_providers_across_orgs():
 
     assert llm_models.Provider.objects.for_organization(org_a).filter(name="Fleet Provider").exists()
     assert llm_models.Provider.objects.for_organization(org_b).filter(name="Fleet Provider").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_typesafe_shorthand_partner_reaches_the_hosted_api_by_default():
+    """``providers: [{typesafe: key}]`` carries no api_base, and the auto-provisioned
+    provider never passes through createProvider's default map, so the decision
+    backend itself must fall back to TypeSafe's endpoint."""
+    from alpaka_server.configuration import Settings
+    from llm.decision import backend_for
+
+    (partner,) = Settings._accept_providers_shorthand({"providers": [{"typesafe": "ts-key"}]})["provider_partners"]
+    assert partner["kind"] == "typesafe" and "api_base" not in partner
+
+    llm_models.ProviderPartner.objects.create(**{**partner, "identifier": "typesafe-shorthand"})
+    org = Organization.objects.create(slug="typesafe_shorthand_org")
+
+    provider = llm_models.Provider.objects.for_organization(org).get(kind="typesafe")
+    assert provider.api_base is None
+    assert backend_for(provider).base_url(provider) == "https://api.typesafe.ai"
+    assert backend_for(provider).headers(provider)["Authorization"] == "Bearer ts-key"

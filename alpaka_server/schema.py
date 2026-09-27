@@ -79,7 +79,7 @@ class Mutation:
     update_provider = strawberry_django.mutation(resolver=llm_mutations.update_provider, description="Update a provider in place, e.g. to rotate its credential")
     refresh_provider = strawberry_django.mutation(resolver=llm_mutations.refresh_provider, description="Re-list the models a provider offers")
     delete_provider = strawberry_django.mutation(resolver=llm_mutations.delete_provider, description="Delete a provider and the models it offers")
-    pull = strawberry_django.mutation(resolver=llm_mutations.pull, description="Pull a model into an Ollama provider")
+    pull = strawberry_django.mutation(resolver=llm_mutations.pull, description="Pull a model into an Ollama provider, or a decision model into an Ollaya provider")
     use_model_for = strawberry_django.mutation(resolver=llm_mutations.use_model_for, description="Register a model as the caller's default for a kind of task")
 
     # Budgets
@@ -90,6 +90,7 @@ class Mutation:
     # Inference
     chat = strawberry_django.mutation(resolver=llm_mutations.chat, description="Send a chat completion request")
     generate_image = strawberry_django.mutation(resolver=llm_mutations.generate_image, description="Generate an image from a text description")
+    decide = strawberry_django.mutation(resolver=llm_mutations.decide, description="Ask a decision model typed questions (noul, choice, score) about one state, and get calibrated answers")
 
     # Vector collections
     create_collection = strawberry_django.mutation(resolver=vector_mutations.create_collection, description="Create a searchable collection of documents")

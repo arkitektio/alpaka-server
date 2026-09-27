@@ -272,3 +272,63 @@ class Budget:
     def status(self) -> BudgetStatus:
         """Current-period consumption."""
         return budget_status_of(self)
+
+
+# --- DECISIONS ---
+
+
+@strawberry.type(description="The probability of one option")
+class OptionProbability:
+    """How likely one option of a choice is."""
+
+    key: str
+    probability: float
+
+
+@strawberry.type(description="The answer to a yes/no question")
+class NoulAnswer:
+    """The probability that the statement is true."""
+
+    key: str
+    noul: float = strawberry.field(description="Probability of yes, from 0 to 1; near 0.5 means uncertain")
+
+
+@strawberry.type(description="The answer to a choice question")
+class ChoiceAnswer:
+    """The most probable option, and how likely each option is."""
+
+    key: str
+    choice: str = strawberry.field(description="The most probable option")
+    confidence: float = strawberry.field(description="Certainty in the choice, from 0 to 1; flag low values for review")
+    probabilities: List[OptionProbability] = strawberry.field(description="Every option with its probability, in the order the model reported them")
+
+
+@strawberry.type(description="One level of a score rubric")
+class ScoreLevel:
+    """A rubric level with its probability."""
+
+    level: int
+    description: str
+    probability: float
+
+
+@strawberry.type(description="The answer to a score question")
+class ScoreAnswer:
+    """The expected level on the rubric, and how likely each level is."""
+
+    key: str
+    score: float = strawberry.field(description="Expected score: the probability-weighted mean of the levels, so it may fall between them")
+    confidence: float = strawberry.field(description="Certainty in the score, from 0 to 1; flag low values for review")
+    levels: List[ScoreLevel] = strawberry.field(description="Every rubric level, lowest first, with its probability")
+
+
+DecisionAnswer = Annotated[NoulAnswer | ChoiceAnswer | ScoreAnswer, strawberry.union("DecisionAnswer", description="An answer; its type matches the question's")]
+
+
+@strawberry.type(description="The answers of a decision model")
+class Decision:
+    """Typed answers to a decide request."""
+
+    model: str = strawberry.field(description="The model that answered; may differ from an alias that was asked for")
+    answers: List[DecisionAnswer] = strawberry.field(description="One answer per question, in the order the questions were asked")
+    usage: Optional[Usage]

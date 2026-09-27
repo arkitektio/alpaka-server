@@ -174,6 +174,16 @@ class LLMModel(models.Model):
         return feature in self.get_features()
 
     @property
+    def is_decision_model(self) -> bool:
+        """Whether this model answers typed questions (``llm.decision``) rather than generating.
+
+        Decision models are not reachable through litellm, so every chat,
+        completion, image and embedding path rejects them up front instead of
+        failing inside litellm with a routing error that names no cause.
+        """
+        return FeatureType.DECISION.value in self.get_features()
+
+    @property
     def provider_kind(self) -> ProviderKind:
         """Get the provider kind from the related provider"""
         return self.provider.kind

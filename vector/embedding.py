@@ -13,7 +13,7 @@ from authentikate.models import Client, Organization, User
 from litellm import aembedding
 
 from llm.enums import UsageEndpoint
-from llm.errors import wrap_llm_errors
+from llm.errors import ensure_generative, wrap_llm_errors
 from llm.models import LLMModel
 from llm.usage import aenforce_budget, atrack_usage
 
@@ -35,6 +35,7 @@ async def aembed_texts(embedder: LLMModel, texts: Sequence[str], *, user: Option
     The call is budget-checked and recorded against the embedder's organization;
     pass ``user``/``client`` so the record says who triggered it.
     """
+    ensure_generative(embedder)
     organization = await _organization_of(embedder)
     await aenforce_budget(organization, user, embedder)
 

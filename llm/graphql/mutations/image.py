@@ -10,7 +10,7 @@ from kante.types import Info
 
 from llm import enums
 from llm.enums import DefaultKind, UsageEndpoint
-from llm.errors import wrap_llm_errors
+from llm.errors import ensure_generative, wrap_llm_errors
 from llm.usage import enforce_budget, track_usage
 from llm.graphql.mutations.chat import resolve_model
 from llm.inputs import ImageInput
@@ -77,6 +77,7 @@ def generate_image(info: Info, input: ImageInput) -> ImageResponse:
     """Generate an image from a text description."""
     image_model = resolve_model(info, input.model, DefaultKind.IMAGE_GENERATION)
 
+    ensure_generative(image_model)
     if not image_model.is_available:
         raise Exception(f"Model '{image_model.llm_string}' is not currently available")
 

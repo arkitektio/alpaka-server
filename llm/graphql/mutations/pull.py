@@ -1,4 +1,4 @@
-"""Pulling a model into an Ollama provider."""
+"""Pulling a model into a local runtime: Ollama for LLMs, Ollaya for decision models."""
 
 from typing import Optional
 
@@ -6,7 +6,8 @@ import aiohttp
 import strawberry
 from kante.types import Info
 
-from llm import enums, models
+from llm import enums, logic, models
+from llm.decision import OllayaBackend, backend_for
 
 #: A model pull downloads gigabytes, so the ceiling is generous — but it is a
 #: ceiling. Without one a stalled pull held the connection open forever.
@@ -30,17 +31,25 @@ class PullInput:
 
 
 class ProviderNotPullable(Exception):
-    """Raised when asked to pull into a provider that is not an Ollama instance."""
+    """Raised when asked to pull into a provider that cannot pull models."""
+
+
+#: Provider kinds that can pull a model by name.
+PULLABLE_KINDS = (enums.ProviderKind.OLLAMA.value, enums.ProviderKind.OLLAYA.value)
 
 
 async def _resolve_provider(info: Info, provider_id: Optional[str]) -> models.Provider:
-    """Resolve the Ollama provider to pull into, scoped to the caller's organization."""
+    """Resolve the provider to pull into, scoped to the caller's organization.
+
+    Without an explicit provider this stays an Ollama pull, as it always was;
+    an Ollaya provider has to be named.
+    """
     providers = models.Provider.objects.for_organization(info.context.request.organization)
 
     if provider_id:
         provider = await providers.aget(id=provider_id)
-        if provider.kind != enums.ProviderKind.OLLAMA.value:
-            raise ProviderNotPullable(f"Provider '{provider.name}' is a {provider.kind} provider. Only Ollama providers can pull models.")
+        if provider.kind not in PULLABLE_KINDS:
+            raise ProviderNotPullable(f"Provider '{provider.name}' is a {provider.kind} provider. Only Ollama and Ollaya providers can pull models.")
         return provider
 
     provider = await providers.filter(kind=enums.ProviderKind.OLLAMA.value).afirst()
@@ -57,6 +66,16 @@ async def pull(info: Info, input: PullInput) -> OllamaPullResult:
     pull too.
     """
     provider = await _resolve_provider(info, input.provider)
+
+    if provider.kind == enums.ProviderKind.OLLAYA.value:
+        backend = backend_for(provider)
+        assert isinstance(backend, OllayaBackend)
+        status, detail = await backend.pull(provider, input.model_name)
+        if status == "success":
+            # A pulled decision model is only reachable once it is an LLMModel.
+            await logic.arefresh_decision_models(provider)
+        return OllamaPullResult(status=status, detail=detail)
+
     base = (provider.api_base or "").rstrip("/")
 
     timeout = aiohttp.ClientTimeout(total=PULL_TIMEOUT_SECONDS)
