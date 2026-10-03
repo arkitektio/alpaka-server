@@ -1,67 +1,48 @@
-"""alpaka as the hub's rekuest sees it (vendored ``rekuest_service``): the service, and its HookAgent.
+"""alpaka as a service of the hub: what exists here (vendored ``rekuest_service``).
 
-Two declarations, read by rekuest from one manifest and mounted by ``urls.py`` (``*service.urls``):
+Two separate declarations, read by rekuest from the service's manifest (``*service.urls`` in
+``urls.py``) and catalogued hub-wide:
 
-* the **service** says what exists: the structures alpaka hosts, the descriptors of their objects,
-  and — every save and delete being announced, with no emit in the mutations — the signals it
-  emits. Hub-wide; users' triggers are checked against the kinds and descriptor keys declared here,
-  and the GraphQL types answer ``descriptors`` from the same declarations (``alpaka_server.descriptors``);
-* its **agent** says what can be done: the actions rekuest runs here. Every organization has the
-  agent and its own schedules, so an action does one organization's share of the work.
+* the **structures** alpaka hosts, and the descriptors of their objects. The GraphQL types answer
+  ``descriptors`` from the same declarations (``alpaka_server.descriptors``);
+* the **signals** it emits: which saves and deletes are announced, with no emit in the mutations.
+  Users' triggers are checked against the kinds and descriptor keys declared here.
 
-Nothing here loops: each run is one pass rekuest started, and a lost run is followed by the next.
+Hosting announces nothing by itself: a structure with no signal below is hosted silently.
+
+That is all a service is. What can be *done* in this process is not declared here: that is an
+agent's to say (``alpaka_server.hook_agent``), a different thing with its own configuration.
 """
 
-from django.conf import settings
 
 from kammer import models as kammer_models
 from vector import models as vector_models
-from embeddings import engine
-from embeddings.healer import reembed_all
 from llm import models as llm_models
-from rekuest_service import Descriptor, HookAgent, Service, organization_of
+from rekuest_service import Descriptor, Service, organization_of
 
 service = Service("alpaka", description="LLM rooms and vector collections.")
 
-# The models whose name + description are embedded (see ``embeddings.healer``).
-_EMBEDDED_MODELS = (kammer_models.Room, vector_models.ChromaCollection)
 
+# --- Structures: what alpaka hosts ----------------------------------------------------
 
-# --- Structures ---------------------------------------------------------------------------
-# What alpaka hosts, and announces to the hub's rekuest. A streamed reply is saved token by
-# token: it is announced once, when it is done (``is_streaming`` false) — never per delta.
-
-CREATED_UPDATED = ("CREATED", "UPDATED")
-CREATED_DELETED = ("CREATED", "DELETED")
-org = organization_of()
-
-service.structure(
+room = service.structure(
     kammer_models.Room,
     "@alpaka/room",
-    kinds=CREATED_DELETED,
-    organization=org,
     description="A room: a conversation between users and agents.",
-    signal_description="A room (a conversation) was created or deleted.",
 )
-service.structure(
+message = service.structure(
     kammer_models.Message,
     "@alpaka/message",
-    kinds=CREATED_UPDATED,
-    organization=organization_of("room.organization"),
-    when=lambda message, kind: not message.is_streaming,
     descriptors=(
         Descriptor("@alpaka/from_agent", "BOOL", "Whether an agent posted it"),
         Descriptor("@alpaka/is_reply", "BOOL", "Whether it replies to another message"),
     ),
     describe=lambda message: {"@alpaka/from_agent": message.agent_id is not None, "@alpaka/is_reply": message.is_reply_to_id is not None},
     description="A message an agent posted in a room.",
-    signal_description="A message was posted in a room (a streamed reply: once it finished).",
 )
-service.structure(
+llmmodel = service.structure(
     llm_models.LLMModel,
     "@alpaka/llmmodel",
-    kinds=CREATED_UPDATED,
-    organization=organization_of("provider.organization"),
     descriptors=(
         Descriptor("@alpaka/features", "LIST", "What it can do (chat, embedding, ...)"),
         Descriptor("@alpaka/input_modalities", "LIST", "The modalities it accepts as input"),
@@ -73,39 +54,56 @@ service.structure(
         "@alpaka/output_modalities": list(model.output_modalities or []),
     },
     description="A language model reachable through one of the organization's providers.",
-    signal_description="A language model became available or changed (e.g. after a provider refresh).",
 )
-service.structure(
+chromacollection = service.structure(
     vector_models.ChromaCollection,
     "@alpaka/chromacollection",
-    kinds=CREATED_DELETED,
-    organization=org,
     description="A vector collection: documents searchable by meaning.",
-    signal_description="A vector collection was created or deleted.",
 )
 # No descriptors: a provider row holds an API key, and nothing about it belongs in a signal.
-service.structure(
+provider = service.structure(
     llm_models.Provider,
     "@alpaka/provider",
+    description="A provider of language models, as configured by an organization.",
+)
+
+
+# --- Signals: what alpaka announces ----------------------------------------------------
+# A streamed reply is saved token by token: it is announced once, when it is done
+# (``is_streaming`` false) — never per delta.
+
+CREATED_UPDATED = ("CREATED", "UPDATED")
+CREATED_DELETED = ("CREATED", "DELETED")
+org = organization_of()
+
+service.model_signal(
+    room,
+    kinds=CREATED_DELETED,
+    organization=org,
+    description="A room (a conversation) was created or deleted.",
+)
+service.model_signal(
+    message,
+    kinds=CREATED_UPDATED,
+    organization=organization_of("room.organization"),
+    when=lambda message, kind: not message.is_streaming,
+    description="A message was posted in a room (a streamed reply: once it finished).",
+)
+service.model_signal(
+    llmmodel,
+    kinds=CREATED_UPDATED,
+    organization=organization_of("provider.organization"),
+    description="A language model became available or changed (e.g. after a provider refresh).",
+)
+service.model_signal(
+    chromacollection,
+    kinds=CREATED_DELETED,
+    organization=org,
+    description="A vector collection was created or deleted.",
+)
+service.model_signal(
+    provider,
     kinds=CREATED_UPDATED,
     organization=org,
-    description="A provider of language models, as configured by an organization.",
-    signal_description="An LLM provider was added or changed.",
+    description="An LLM provider was added or changed.",
 )
-
-
-# --- The HookAgent ------------------------------------------------------------------------
-
-agent = HookAgent(service)
-
-
-@agent.action(
-    interface="reembed_stale",
-    name="Re-embed stale rows",
-    description="Re-embed every row of the organization whose vector was produced by another embedding model, or by none.",
-    # Scheduled only where embeddings are on; ``embeddings.sweep_interval`` is its cadence.
-    default_interval=settings.EMBEDDINGS["SWEEP_INTERVAL"] if engine.enabled() else None,
-)
-def reembed_stale(organization: str) -> dict:
-    """One pass over the organization's embedded rows, in row-locked batches (N replicas may run it at once)."""
-    return {"reembedded": reembed_all(_EMBEDDED_MODELS, max_batches=50, organization=organization)}

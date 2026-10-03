@@ -8,7 +8,8 @@ the keys the manifest declares. And the agent's one action does one organization
 import pytest
 from asgiref.sync import sync_to_async
 
-from alpaka_server.service import agent, service
+from alpaka_server.hook_agent import agent
+from alpaka_server.service import service
 from authentikate.models import Client, Organization, User
 from embeddings import engine
 from embeddings.healer import stale_queryset
