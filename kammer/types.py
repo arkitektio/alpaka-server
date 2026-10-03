@@ -7,6 +7,7 @@ import strawberry
 import strawberry_django
 from kante.types import Info
 from kammer import filters, models
+from alpaka_server.descriptors import DESCRIPTORS_DESCRIPTION, resolve_descriptors
 from authentikate.strawberry.types import Client, Organization, User
 from strawberry import scalars
 from .type_gen import create_stats_type
@@ -61,6 +62,7 @@ class Room:
         """
         return await models.Room.objects.for_organization(info.context.request.organization).aget(id=id)
 
+    descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID
     title: str
     description: Optional[str]
@@ -135,6 +137,7 @@ class Message:
         """
         return await models.Message.objects.for_organization(info.context.request.organization).aget(id=id)
 
+    descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID
     text: str
     room: Room

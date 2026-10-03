@@ -92,6 +92,27 @@ def test_the_manifest_declares_every_model_signal():
     assert {s["identifier"]: s["kinds"] for s in service.manifest()["signals"]} == EXPECTED
 
 
+def test_the_manifest_lists_what_alpaka_hosts_with_its_descriptors():
+    hosted = {s["identifier"]: s for s in service.manifest()["structures"]}
+    # Everything alpaka hosts is signalled, and nothing else is.
+    assert set(hosted) == set(EXPECTED)
+    assert hosted["@alpaka/room"]["label"] == "Room"
+    assert hosted["@alpaka/message"]["descriptors"] == [
+        {"key": "@alpaka/from_agent", "type": "BOOL", "description": "Whether an agent posted it"},
+        {"key": "@alpaka/is_reply", "type": "BOOL", "description": "Whether it replies to another message"},
+    ]
+    assert [(d["key"], d["type"]) for d in hosted["@alpaka/llmmodel"]["descriptors"]] == [
+        ("@alpaka/features", "LIST"),
+        ("@alpaka/input_modalities", "LIST"),
+        ("@alpaka/output_modalities", "LIST"),
+    ]
+    # A provider row holds an API key: it says nothing about itself.
+    assert hosted["@alpaka/provider"]["descriptors"] == []
+    # The keys a signal may carry are the keys its structure declares.
+    for declared in service.manifest()["signals"]:
+        assert declared["descriptors"] == [d["key"] for d in hosted[declared["identifier"]]["descriptors"]]
+
+
 @pytest.mark.django_db(transaction=True)
 def test_a_save_is_signalled_signed_by_this_instance(intake):
     from kammer.models import Room

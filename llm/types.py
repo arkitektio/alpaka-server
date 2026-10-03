@@ -5,6 +5,7 @@ import strawberry
 from typing import Annotated, Optional, List
 from strawberry.types import Info
 from authentikate.strawberry.types import Client, User
+from alpaka_server.descriptors import DESCRIPTORS_DESCRIPTION, resolve_descriptors
 from kammer.type_gen import create_stats_type
 from kammer.types import build_prescoper
 from llm import models, enums, filters, scalars as llmscalars
@@ -108,6 +109,7 @@ class LLMModel:
         """
         return queryset.filter(provider__organization=info.context.request.organization)
 
+    descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID
     model_id: str
     label: str
@@ -129,6 +131,7 @@ class Provider:
         """Restrict every read of this type to the request's organization."""
         return queryset.filter(organization=info.context.request.organization)
 
+    descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID
     name: str
     api_base: Optional[str]
