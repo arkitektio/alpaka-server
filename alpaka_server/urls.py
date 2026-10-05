@@ -11,7 +11,7 @@ from django.urls import include
 
 from health_check.views import MainView
 from django.views.decorators.csrf import csrf_exempt
-from rekuest_service.views import answers_challenge
+from arkitekt_service.service.views import answers_challenge
 from alpaka_server.hook_agent import agent as hook_agent
 from alpaka_server.service import service as rekuest_service
 

@@ -1,4 +1,4 @@
-"""alpaka as a service of the hub: what exists here (vendored ``rekuest_service``).
+"""alpaka as a service of the hub: what exists here (``arkitekt_service.service``).
 
 Two separate declarations, read by rekuest from the service's manifest (``*service.urls`` in
 ``urls.py``) and catalogued hub-wide:
@@ -18,7 +18,7 @@ agent's to say (``alpaka_server.hook_agent``), a different thing with its own co
 from kammer import models as kammer_models
 from vector import models as vector_models
 from llm import models as llm_models
-from rekuest_service import Descriptor, Service, organization_of
+from arkitekt_service.service import Descriptor, Service, organization_of
 
 service = Service("alpaka", description="LLM rooms and vector collections.")
 
