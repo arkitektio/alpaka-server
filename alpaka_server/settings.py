@@ -15,6 +15,10 @@ import os
 from .configuration import Settings
 from .logs import build_logging
 
+# Where this service's contract is: what the image's environment says, and the same here for a
+# checkout, so that `manage.py validate_settings` and the configuration check work in both.
+os.environ.setdefault("ARKITEKT_SERVICE", "alpaka_server.contract")
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -52,6 +56,10 @@ INSTALLED_APPS = [
     "vector",
     "health_check",  # required for health checks
     "health_check.db",  # stock Django health checkers
+    # What every service is as a Django server: `ensureadmin`, `validate_settings`, and the
+    # check that warns about config keys this release does not read. Last, so that a command
+    # of the service's own with the same name is the one that runs.
+    "arkitekt_service.server",
 ]
 
 
@@ -245,7 +253,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 PROVIDER_PARTNERS = [p.model_dump(mode="json") for p in conf.provider_partners]
 
-# Superuser provisioned by ``manage.py ensureadmin`` (run.sh). Stored as a plain
+# Superuser provisioned by ``manage.py ensureadmin`` (arkitekt-service serve). Stored as a plain
 # dict because Django settings only expose UPPERCASE names; the command
 # re-validates it, the same way ensurepartners does for PROVIDER_PARTNERS.
 DJANGO_ADMIN = conf.django.admin.model_dump() if conf.django.admin else None

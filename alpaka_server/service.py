@@ -1,12 +1,11 @@
-"""alpaka as a service of the hub: what exists here (``arkitekt_service.service``).
+"""alpaka as a service of the hub: the models and the code behind what its contract says it hosts.
 
-Two separate declarations, read by rekuest from the service's manifest (``*service.urls`` in
-``urls.py``) and catalogued hub-wide:
-
-* the **structures** alpaka hosts, and the descriptors of their objects. The GraphQL types answer
-  ``descriptors`` from the same declarations (``alpaka_server.descriptors``);
-* the **signals** it emits: which saves and deletes are announced, with no emit in the mutations.
-  Users' triggers are checked against the kinds and descriptor keys declared here.
+What exists here (the structures, the descriptors of their objects, the signals and their kinds)
+is declared once, as data, in ``alpaka_server.contract`` (``hosts``), so that a hub knows it from the
+image. This module only binds it: each structure to its model and to what computes its
+descriptors, each signal to the saves and deletes that send it. A structure the contract does not
+declare cannot be bound, and one it declares that nothing binds here stops the service at its
+start. The GraphQL types answer ``descriptors`` from the same binding (``alpaka_server.descriptors``).
 
 Hosting announces nothing by itself: a structure with no signal below is hosted silently.
 
@@ -18,92 +17,43 @@ agent's to say (``alpaka_server.hook_agent``), a different thing with its own co
 from kammer import models as kammer_models
 from vector import models as vector_models
 from llm import models as llm_models
-from arkitekt_service.service import Descriptor, Service, organization_of
+from arkitekt_service.service import Service, organization_of
 
-service = Service("alpaka", description="LLM rooms and vector collections.")
+from alpaka_server.contract import contract
+
+service = Service("alpaka", hosts=contract.description.hosts, description="LLM rooms and vector collections.")
 
 
 # --- Structures: what alpaka hosts ----------------------------------------------------
 
-room = service.structure(
-    kammer_models.Room,
-    "@alpaka/room",
-    description="A room: a conversation between users and agents.",
-)
+room = service.structure(kammer_models.Room, "@alpaka/room")
 message = service.structure(
     kammer_models.Message,
     "@alpaka/message",
-    descriptors=(
-        Descriptor("@alpaka/from_agent", "BOOL", "Whether an agent posted it"),
-        Descriptor("@alpaka/is_reply", "BOOL", "Whether it replies to another message"),
-    ),
     describe=lambda message: {"@alpaka/from_agent": message.agent_id is not None, "@alpaka/is_reply": message.is_reply_to_id is not None},
-    description="A message an agent posted in a room.",
 )
 llmmodel = service.structure(
     llm_models.LLMModel,
     "@alpaka/llmmodel",
-    descriptors=(
-        Descriptor("@alpaka/features", "LIST", "What it can do (chat, embedding, ...)"),
-        Descriptor("@alpaka/input_modalities", "LIST", "The modalities it accepts as input"),
-        Descriptor("@alpaka/output_modalities", "LIST", "The modalities it produces as output"),
-    ),
     describe=lambda model: {
         "@alpaka/features": list(model.features or []),
         "@alpaka/input_modalities": list(model.input_modalities or []),
         "@alpaka/output_modalities": list(model.output_modalities or []),
     },
-    description="A language model reachable through one of the organization's providers.",
 )
-chromacollection = service.structure(
-    vector_models.ChromaCollection,
-    "@alpaka/chromacollection",
-    description="A vector collection: documents searchable by meaning.",
-)
+chromacollection = service.structure(vector_models.ChromaCollection, "@alpaka/chromacollection")
 # No descriptors: a provider row holds an API key, and nothing about it belongs in a signal.
-provider = service.structure(
-    llm_models.Provider,
-    "@alpaka/provider",
-    description="A provider of language models, as configured by an organization.",
-)
+provider = service.structure(llm_models.Provider, "@alpaka/provider")
 
 
 # --- Signals: what alpaka announces ----------------------------------------------------
 # A streamed reply is saved token by token: it is announced once, when it is done
 # (``is_streaming`` false) — never per delta.
 
-CREATED_UPDATED = ("CREATED", "UPDATED")
-CREATED_DELETED = ("CREATED", "DELETED")
 org = organization_of()
 
-service.model_signal(
-    room,
-    kinds=CREATED_DELETED,
-    organization=org,
-    description="A room (a conversation) was created or deleted.",
-)
-service.model_signal(
-    message,
-    kinds=CREATED_UPDATED,
-    organization=organization_of("room.organization"),
-    when=lambda message, kind: not message.is_streaming,
-    description="A message was posted in a room (a streamed reply: once it finished).",
-)
-service.model_signal(
-    llmmodel,
-    kinds=CREATED_UPDATED,
-    organization=organization_of("provider.organization"),
-    description="A language model became available or changed (e.g. after a provider refresh).",
-)
-service.model_signal(
-    chromacollection,
-    kinds=CREATED_DELETED,
-    organization=org,
-    description="A vector collection was created or deleted.",
-)
-service.model_signal(
-    provider,
-    kinds=CREATED_UPDATED,
-    organization=org,
-    description="An LLM provider was added or changed.",
-)
+service.model_signal(room, organization=org)
+service.model_signal(message, organization=organization_of("room.organization"), when=lambda message, kind: not message.is_streaming)
+service.model_signal(llmmodel, organization=organization_of("provider.organization"))
+service.model_signal(chromacollection, organization=org)
+service.model_signal(provider, organization=org)

@@ -1,6 +1,6 @@
 """``manage.py ensureadmin`` provisions the ``django.admin`` superuser idempotently.
 
-run.sh has called this command since v1, but it never existed, so the configured
+arkitekt-service serve has called this command since v1, but it never existed, so the configured
 superuser was silently never created."""
 
 import pytest

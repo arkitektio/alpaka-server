@@ -160,11 +160,11 @@ runs is the organization's own automation in rekuest.
 The image is `jhnnsrs/alpaka`. Starting it takes two steps:
 
 ```sh
-python -m arkitekt_service migrate   # wait for the database, migrate, ensureadmin, ensurepartners
-bash run.sh                          # serve on :80 (daphne), and nothing else
+arkitekt-service run migrate   # wait for the database, migrate, ensureadmin, ensurepartners
+arkitekt-service serve                          # serve on :80 (daphne), and nothing else
 ```
 
-`bash run.sh` is the image's default command. `run-debug.sh` does both steps in one go with
+`arkitekt-service serve` is the image's default command. `arkitekt-service debug` does both steps in one go with
 Django's autoreloading server, for development.
 
 It needs Postgres with pgvector ([`jhnnsrs/daten`](https://github.com/arkitektio/daten-server)),
