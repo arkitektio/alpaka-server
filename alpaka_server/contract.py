@@ -131,6 +131,7 @@ contract = Contract(
     jobs={
         "ensureadmin": Job(("ensureadmin",), "Create the operator account the config names"),
         "ensurepartners": Job(("ensurepartners",), "Register the partners the config names"),
+        "inspectollama": Job(("inspectollama",), "Register an Ollama server as a provider for an organization and list its models: --organization <slug>"),
     },
     setup=("ensureadmin", "ensurepartners"),
 )
