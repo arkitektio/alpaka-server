@@ -5,7 +5,9 @@ is declared once, as data, in ``alpaka_server.contract`` (``hosts``), so that a 
 image. This module only binds it: each structure to its model and to what computes its
 descriptors, each signal to the saves and deletes that send it. A structure the contract does not
 declare cannot be bound, and one it declares that nothing binds here stops the service at its
-start. The GraphQL types answer ``descriptors`` from the same binding (``alpaka_server.descriptors``).
+start. Each described row stores its descriptors on every save (``stored_descriptors``): the
+GraphQL types answer ``descriptors`` from there, and a list filter's ``requires`` reads it in SQL.
+What a save of the row cannot see is restored below, by the writes that change it.
 
 Hosting announces nothing by itself: a structure with no signal below is hosted silently.
 
@@ -14,36 +16,70 @@ agent's to say (``alpaka_server.hook_agent``), a different thing with its own co
 """
 
 
-from kammer import models as kammer_models
-from vector import models as vector_models
-from llm import models as llm_models
-from arkitekt_service.service import Service, organization_of
+from typing import Literal
 
+from arkitekt_service.service import Service, organization_of
+from django.db.models import Model
+from django.db.models.signals import m2m_changed, post_delete, post_save
+
+from alpaka_server import descriptors
 from alpaka_server.contract import contract
+from kammer import models as kammer_models
+from llm import models as llm_models
+from vector import models as vector_models
 
 service = Service("alpaka", hosts=contract.description.hosts, description="LLM rooms and vector collections.")
 
 
 # --- Structures: what alpaka hosts ----------------------------------------------------
 
-room = service.structure(kammer_models.Room, "@alpaka/room")
-message = service.structure(
-    kammer_models.Message,
-    "@alpaka/message",
-    describe=lambda message: {"@alpaka/from_agent": message.agent_id is not None, "@alpaka/is_reply": message.is_reply_to_id is not None},
-)
-llmmodel = service.structure(
-    llm_models.LLMModel,
-    "@alpaka/llmmodel",
-    describe=lambda model: {
-        "@alpaka/features": list(model.features or []),
-        "@alpaka/input_modalities": list(model.input_modalities or []),
-        "@alpaka/output_modalities": list(model.output_modalities or []),
-    },
-)
-chromacollection = service.structure(vector_models.ChromaCollection, "@alpaka/chromacollection")
-# No descriptors: a provider row holds an API key, and nothing about it belongs in a signal.
-provider = service.structure(llm_models.Provider, "@alpaka/provider")
+room = service.structure(kammer_models.Room, "@alpaka/room", describe=descriptors.room_descriptors)
+message = service.structure(kammer_models.Message, "@alpaka/message", describe=descriptors.message_descriptors)
+llmmodel = service.structure(llm_models.LLMModel, "@alpaka/llmmodel", describe=descriptors.llm_model_descriptors)
+chromacollection = service.structure(vector_models.ChromaCollection, "@alpaka/chromacollection", describe=descriptors.collection_descriptors)
+# Only its kind: a provider row holds an API key, and nothing else about it belongs in a signal.
+provider = service.structure(llm_models.Provider, "@alpaka/provider", describe=descriptors.provider_descriptors)
+
+
+# --- Restores: what a save of the described row does not see --------------------------
+# Each restore of a row created in the transaction still open announces nothing: its CREATED
+# reads the stored value at the commit. A mutation that writes a row and then what describes it
+# (``send``, ``createRoom``) is one transaction, so its CREATED carries both.
+
+M2mAction = Literal["pre_add", "post_add", "pre_remove", "post_remove", "pre_clear", "post_clear"]
+
+
+def _restore_attached(sender: type[Model], instance: Model, action: M2mAction, reverse: bool, model: type[Model], pk_set: set[int] | None, **_: object) -> None:
+    """The structures a room is about or a message was posted about changed: restore the described side."""
+    if not action.startswith("post_"):
+        return
+    if not reverse:
+        service.restore(instance)
+    elif pk_set:  # written from a structure's side: ``model`` is the room or message
+        service.restore(model._base_manager.filter(pk__in=pk_set))
+
+
+m2m_changed.connect(_restore_attached, sender=kammer_models.Room.contextual_structures.through, weak=False, dispatch_uid="alpaka:room:contextual_structures")
+m2m_changed.connect(_restore_attached, sender=kammer_models.Message.attached_structures.through, weak=False, dispatch_uid="alpaka:message:attached_structures")
+
+
+def _restore_room_of(sender: type[kammer_models.Agent], instance: kammer_models.Agent, created: bool = True, **_: object) -> None:
+    """An agent joined or left a room: restore what the room counts. A queryset, so a room being deleted is no error."""
+    if created:
+        service.restore(kammer_models.Room.all_objects.filter(pk=instance.room_id))
+
+
+post_save.connect(_restore_room_of, sender=kammer_models.Agent, weak=False, dispatch_uid="alpaka:agent:room-saved")
+post_delete.connect(_restore_room_of, sender=kammer_models.Agent, weak=False, dispatch_uid="alpaka:agent:room-deleted")
+
+
+def _restore_models_of(sender: type[llm_models.Provider], instance: llm_models.Provider, created: bool = False, raw: bool = False, **_: object) -> None:
+    """A provider was saved, its kind perhaps changed (``createProvider`` upserts by name): restore its models."""
+    if not created and not raw:
+        service.restore(llm_models.LLMModel.all_objects.filter(provider=instance).select_related("provider"))
+
+
+post_save.connect(_restore_models_of, sender=llm_models.Provider, weak=False, dispatch_uid="alpaka:provider:models")
 
 
 # --- Signals: what alpaka announces ----------------------------------------------------

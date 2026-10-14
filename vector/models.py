@@ -1,11 +1,13 @@
 # api/models.py
 from alpaka_server.scoping import OrganizationScopedManager
+from arkitekt_service.service.described import Described
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 from authentikate.models import User, Organization
 
 
-class ChromaCollection(EmbeddedDescriptionMixin, models.Model):
+class ChromaCollection(EmbeddedDescriptionMixin, Described):
     """A Chroma document collection's metadata row; embeds its name + description for ``search``.
 
     The collection's *documents* are embedded by its own LLM ``embedder`` and live in Chroma;
@@ -33,7 +35,7 @@ class ChromaCollection(EmbeddedDescriptionMixin, models.Model):
         default_manager_name = "all_objects"
         unique_together = ("organization", "name")
         # The embedding healer's "any row not by the current model?" probe.
-        indexes = [*embedding_indexes("chroma_coll")]
+        indexes = [*embedding_indexes("chroma_coll"), GinIndex(fields=["stored_descriptors"], name="chroma_coll_desc_gin", opclasses=["jsonb_path_ops"])]
 
     def __str__(self):
         return self.name

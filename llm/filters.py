@@ -1,6 +1,8 @@
 import datetime
 import strawberry
 import strawberry_django
+from alpaka_server.descriptors import REQUIRES_DESCRIPTION, DescriptorConstraintInput
+from alpaka_server.descriptors import requires as descriptor_requires
 from django.db.models import Q
 from llm import enums, models
 from strawberry import auto
@@ -45,6 +47,11 @@ class LLMModelFilter:
         """Restrict to the models offered by one provider."""
         return Q(**{f"{prefix}provider_id": value})
 
+    @strawberry_django.filter_field(description=REQUIRES_DESCRIPTION)
+    def requires(self, value: list[DescriptorConstraintInput], prefix: str) -> Q:
+        """A port\'s ``requires``, on the stored descriptors."""
+        return descriptor_requires(models.LLMModel, value, prefix)
+
 
 @strawberry_django.order_type(models.Provider)
 class ProviderOrder:
@@ -63,6 +70,11 @@ class ProviderFilter:
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}name__icontains": value})
+
+    @strawberry_django.filter_field(description=REQUIRES_DESCRIPTION)
+    def requires(self, value: list[DescriptorConstraintInput], prefix: str) -> Q:
+        """A port\'s ``requires``, on the stored descriptors."""
+        return descriptor_requires(models.Provider, value, prefix)
 
 
 @strawberry_django.order_type(models.DefaultUse)

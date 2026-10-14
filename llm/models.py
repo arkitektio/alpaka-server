@@ -1,5 +1,7 @@
 # api/models.py
 from alpaka_server.scoping import OrganizationScopedManager
+from arkitekt_service.service.described import Described
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from llm.enums import BudgetPeriod, FeatureType, ProviderKind, UsageEndpoint, UsageStatus
 from authentikate.models import Client, Organization, User
@@ -75,7 +77,7 @@ class ProviderPartner(models.Model):
         return True
 
 
-class Provider(models.Model):
+class Provider(Described):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     api_key = models.TextField(blank=True, null=True)
@@ -105,6 +107,7 @@ class Provider(models.Model):
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
         unique_together = ("organization", "name")
+        indexes = [GinIndex(fields=["stored_descriptors"], name="provider_desc_gin", opclasses=["jsonb_path_ops"])]
 
 
 #: litellm routes on the prefix before the first "/" in the model string, which
@@ -140,7 +143,7 @@ for _kind, _prefix in LITELLM_PREFIX_BY_KIND.items():
     KINDS_BY_LITELLM_PREFIX.setdefault(_prefix, []).append(_kind)
 
 
-class LLMModel(models.Model):
+class LLMModel(Described):
     provider = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="models")
     model_id = models.CharField(max_length=255)
     label = models.CharField(max_length=255)
@@ -156,6 +159,7 @@ class LLMModel(models.Model):
     class Meta:
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
+        indexes = [GinIndex(fields=["stored_descriptors"], name="llmmodel_desc_gin", opclasses=["jsonb_path_ops"])]
 
     @property
     def is_available(self):

@@ -11,6 +11,7 @@ tokens it received and the server stores and fans them out.
 
 from typing import Iterable, Optional
 
+from django.db import transaction
 from django.db.models import F, TextField, Value
 from django.db.models.functions import Concat
 
@@ -75,19 +76,24 @@ def append_delta(message_id: int, delta: str) -> int:
 
 
 def finish_message(message: models.Message, *, text: Optional[str] = None, structures: Optional[Iterable] = None) -> models.Message:
-    """Close a streaming message, optionally replacing its text with the final version."""
-    message.is_streaming = False
-    fields = ["is_streaming"]
-    if text is not None:
-        message.text = text
-        fields.append("text")
-    # Only the override touches ``text``: the instance may predate appends made
-    # by atomic UPDATEs, and saving its stale copy would wipe them.
-    # One history row with the final text; appends deliberately leave none.
-    message.save(update_fields=fields)
+    """Close a streaming message, optionally replacing its text with the final version.
+
+    The structures are attached while it is still streaming (no signal goes out for a message
+    being written), so the save that closes it stores them and its one UPDATED carries them.
+    """
+    with transaction.atomic():
+        if structures:
+            message.attached_structures.add(*attach_structures(structures))
+        message.is_streaming = False
+        fields = ["is_streaming"]
+        if text is not None:
+            message.text = text
+            fields.append("text")
+        # Only the override touches ``text``: the instance may predate appends made
+        # by atomic UPDATEs, and saving its stale copy would wipe them.
+        # One history row with the final text; appends deliberately leave none.
+        message.save(update_fields=fields)
     message.refresh_from_db(fields=["text"])
-    if structures:
-        message.attached_structures.add(*attach_structures(structures))
     return message
 
 

@@ -28,6 +28,37 @@ ROLES = [
     Scope(key="viewer", description="Read-only access"),
 ]
 
+#: The kind of provider that runs a model (``ollama``, ``openai``, ...): what a privacy-sensitive
+#: action selects on, requiring a provider that runs on the hub (``ollama``, ``ollaya``). One key for
+#: providers and their models, so one `requires` asks both.
+_PROVIDER_KIND = Descriptor(key="@alpaka/provider_kind", type="STRING", description="The kind of provider that runs it (ollama, ollaya, openai, ...): ollama and ollaya run on the hub")
+
+ROOM_DESCRIPTORS = [
+    Descriptor(key="@alpaka/contextual_structures", type="LIST", description="The structures it is about (e.g. @mikro/image), sorted, each once"),
+    Descriptor(key="@alpaka/n_agents", type="INT", description="How many agents take part in it"),
+]
+MESSAGE_DESCRIPTORS = [
+    Descriptor(key="@alpaka/from_agent", type="BOOL", description="Whether an agent posted it"),
+    Descriptor(key="@alpaka/is_reply", type="BOOL", description="Whether it replies to another message"),
+    Descriptor(key="@alpaka/attached_structures", type="LIST", description="The structures it was posted about (e.g. @mikro/image), sorted, each once"),
+]
+LLM_MODEL_DESCRIPTORS = [
+    Descriptor(key="@alpaka/features", type="LIST", description="What it can do (chat, embedding, ...)"),
+    Descriptor(key="@alpaka/input_modalities", type="LIST", description="The modalities it accepts as input"),
+    Descriptor(key="@alpaka/output_modalities", type="LIST", description="The modalities it produces as output"),
+    _PROVIDER_KIND,
+]
+CHROMA_COLLECTION_DESCRIPTORS = [
+    Descriptor(key="@alpaka/embedder", type="STRING", description="The model its documents are embedded by (its model id): a query is embedded by the same"),
+]
+#: Only its kind: a provider row holds an API key, and nothing secret is described.
+PROVIDER_DESCRIPTORS = [_PROVIDER_KIND]
+
+
+def _keys(descriptors: list[Descriptor]) -> list[str]:
+    return [descriptor.key for descriptor in descriptors]
+
+
 #: What exists on a hub because this service is there: said here, as data, so the hub knows it from
 #: the image. ``service.py`` binds each of these to its model and refuses anything not said here.
 HOSTS = Hosts(
@@ -36,63 +67,62 @@ HOSTS = Hosts(
             identifier="@alpaka/room",
             label="Room",
             description="A room: a conversation between users and agents.",
+            descriptors=ROOM_DESCRIPTORS,
         ),
         Structure(
             identifier="@alpaka/message",
             label="Message",
             description="A message an agent posted in a room.",
-            descriptors=[
-                Descriptor(key="@alpaka/from_agent", type="BOOL", description="Whether an agent posted it"),
-                Descriptor(key="@alpaka/is_reply", type="BOOL", description="Whether it replies to another message"),
-            ],
+            descriptors=MESSAGE_DESCRIPTORS,
         ),
         Structure(
             identifier="@alpaka/llmmodel",
             label="Llm Model",
             description="A language model reachable through one of the organization's providers.",
-            descriptors=[
-                Descriptor(key="@alpaka/features", type="LIST", description="What it can do (chat, embedding, ...)"),
-                Descriptor(key="@alpaka/input_modalities", type="LIST", description="The modalities it accepts as input"),
-                Descriptor(key="@alpaka/output_modalities", type="LIST", description="The modalities it produces as output"),
-            ],
+            descriptors=LLM_MODEL_DESCRIPTORS,
         ),
         Structure(
             identifier="@alpaka/chromacollection",
             label="Chroma Collection",
             description="A vector collection: documents searchable by meaning.",
+            descriptors=CHROMA_COLLECTION_DESCRIPTORS,
         ),
         Structure(
             identifier="@alpaka/provider",
             label="Provider",
             description="A provider of language models, as configured by an organization.",
+            descriptors=PROVIDER_DESCRIPTORS,
         ),
     ],
     signals=[
         Signal(
             identifier="@alpaka/room",
             kinds=["CREATED", "DELETED"],
+            descriptors=_keys(ROOM_DESCRIPTORS),
             description="A room (a conversation) was created or deleted.",
         ),
         Signal(
             identifier="@alpaka/message",
             kinds=["CREATED", "UPDATED"],
-            descriptors=["@alpaka/from_agent", "@alpaka/is_reply"],
+            descriptors=_keys(MESSAGE_DESCRIPTORS),
             description="A message was posted in a room (a streamed reply: once it finished).",
         ),
         Signal(
             identifier="@alpaka/llmmodel",
             kinds=["CREATED", "UPDATED"],
-            descriptors=["@alpaka/features", "@alpaka/input_modalities", "@alpaka/output_modalities"],
+            descriptors=_keys(LLM_MODEL_DESCRIPTORS),
             description="A language model became available or changed (e.g. after a provider refresh).",
         ),
         Signal(
             identifier="@alpaka/chromacollection",
             kinds=["CREATED", "DELETED"],
+            descriptors=_keys(CHROMA_COLLECTION_DESCRIPTORS),
             description="A vector collection was created or deleted.",
         ),
         Signal(
             identifier="@alpaka/provider",
             kinds=["CREATED", "UPDATED"],
+            descriptors=_keys(PROVIDER_DESCRIPTORS),
             description="An LLM provider was added or changed.",
         ),
     ],
@@ -132,6 +162,7 @@ contract = Contract(
         "ensureadmin": Job(("ensureadmin",), "Create the operator account the config names"),
         "ensurepartners": Job(("ensurepartners",), "Register the partners the config names"),
         "inspectollama": Job(("inspectollama",), "Register an Ollama server as a provider for an organization and list its models: --organization <slug>"),
+        "restore_descriptors": Job(("restore_descriptors",), "Store the descriptors of every room, message, model, collection and provider that misses one (--all: of every row)"),
     },
-    setup=("ensureadmin", "ensurepartners"),
+    setup=("ensureadmin", "ensurepartners", "restore_descriptors"),
 )

@@ -11,6 +11,7 @@ import logging
 from typing import List
 
 import strawberry
+from django.db import transaction
 from kante.types import Info
 
 from kammer import models, streaming, types
@@ -35,16 +36,21 @@ class CreateRoomInput:
 
 
 def create_room(info: Info, input: CreateRoomInput) -> types.Room:
-    """Create a new room in the caller's organization."""
-    room = models.Room.objects.for_write().create(
-        title=input.title or "Untitled",
-        description=input.description or "No description",
-        creator=info.context.request.user,
-        organization=info.context.request.organization,
-    )
+    """Create a new room in the caller's organization.
 
-    if input.talking_about:
-        room.contextual_structures.add(*streaming.attach_structures(input.talking_about))
+    One transaction with what it is about: the room's CREATED, sent at the commit, carries
+    the structures attached after its insert.
+    """
+    with transaction.atomic():
+        room = models.Room.objects.for_write().create(
+            title=input.title or "Untitled",
+            description=input.description or "No description",
+            creator=info.context.request.user,
+            organization=info.context.request.organization,
+        )
+
+        if input.talking_about:
+            room.contextual_structures.add(*streaming.attach_structures(input.talking_about))
 
     return room
 
@@ -75,19 +81,24 @@ class SendMessageInput:
 
 
 def send(info: Info, input: SendMessageInput) -> types.Message:
-    """Post a complete message into a room as the calling agent."""
+    """Post a complete message into a room as the calling agent.
+
+    One transaction with what it is posted about: the message's CREATED, sent at the commit,
+    carries the structures attached after its insert.
+    """
     request = info.context.request
-    room, agent = streaming.room_and_agent(organization=request.organization, user=request.user, client=request.client, room_id=input.room, agent_name=input.agent_id)
+    with transaction.atomic():
+        room, agent = streaming.room_and_agent(organization=request.organization, user=request.user, client=request.client, room_id=input.room, agent_name=input.agent_id)
 
-    message = models.Message.objects.for_write().create(
-        agent=agent,
-        room=room,
-        text=input.text,
-        is_reply_to=streaming.parent_message(organization=request.organization, room=room, parent_id=input.parent),
-    )
+        message = models.Message.objects.for_write().create(
+            agent=agent,
+            room=room,
+            text=input.text,
+            is_reply_to=streaming.parent_message(organization=request.organization, room=room, parent_id=input.parent),
+        )
 
-    if input.attach_structures:
-        message.attached_structures.add(*streaming.attach_structures(input.attach_structures))
+        if input.attach_structures:
+            message.attached_structures.add(*streaming.attach_structures(input.attach_structures))
 
     return message
 

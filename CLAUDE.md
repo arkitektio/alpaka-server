@@ -26,10 +26,27 @@ anything is recreated — and runs everything else as a job the image offers by 
 
 What this service declares:
 
-- Setup, in order: `ensureadmin`, `ensurepartners`.
+- Setup, in order: `ensureadmin`, `ensurepartners`, `restore_descriptors`. The third stores the
+  descriptors of every room, message, model, collection and provider that misses a declared key
+  (rows from before a key existed); `--all` describes every row again after a describer changed
+  what a key means.
 - Other jobs: `inspectollama`.
 
 `tests/test_prepared.py` holds the contract to this: migrations committed, every job a command
 of this service, the setup run twice. In `deployments/next` the service runs
 `arkitekt-service standalone --debug`, which migrates and then serves: restart its container
 to apply a new migration.
+
+## Descriptors
+
+Every descriptor is stored (`stored_descriptors`, recomputed on every save by
+`arkitekt_service`), so a port's `requires` is the `requires` argument of a list filter, one
+indexed query. The describers are in `alpaka_server/descriptors.py`; a provider describes only
+its kind, never anything secret. What a save of the row cannot see is restored in
+`alpaka_server/service.py`: attaching or detaching structures (`m2m_changed`), an agent joining
+or leaving a room (`@alpaka/n_agents`), a provider saved under its models
+(`@alpaka/provider_kind`). A mutation that writes a row and then what describes it is one
+transaction (`send`, `createRoom`), so its CREATED carries both; `finishMessage` attaches before
+it closes the message, so its one UPDATED does. A bulk write (`update()`, `bulk_update`) of a
+field a descriptor reads restores the rows (`service.restore`); appending streamed text is one,
+and no descriptor reads text.

@@ -1,5 +1,7 @@
 import strawberry
 import strawberry_django
+from alpaka_server.descriptors import REQUIRES_DESCRIPTION, DescriptorConstraintInput
+from alpaka_server.descriptors import requires as descriptor_requires
 from django.db.models import Q, QuerySet
 from embeddings.search import hybrid_search
 from kammer import models
@@ -22,6 +24,11 @@ class MessageFilter:
     @strawberry_django.filter_field
     def search(self, value: str, prefix: str) -> Q:
         return Q(**{f"{prefix}text__icontains": value})
+
+    @strawberry_django.filter_field(description=REQUIRES_DESCRIPTION)
+    def requires(self, value: list[DescriptorConstraintInput], prefix: str) -> Q:
+        """A port\'s ``requires``, on the stored descriptors."""
+        return descriptor_requires(models.Message, value, prefix)
 
 
 @strawberry_django.order_type(models.Agent)
@@ -68,3 +75,8 @@ class RoomFilter:
         if not structure:
             return queryset.none(), Q()
         return queryset, Q(**{f"{prefix}contextual_structures": structure})
+
+    @strawberry_django.filter_field(description=REQUIRES_DESCRIPTION)
+    def requires(self, value: list[DescriptorConstraintInput], prefix: str) -> Q:
+        """A port\'s ``requires``, on the stored descriptors."""
+        return descriptor_requires(models.Room, value, prefix)

@@ -1,5 +1,7 @@
 import strawberry
 import strawberry_django
+from alpaka_server.descriptors import REQUIRES_DESCRIPTION, DescriptorConstraintInput
+from alpaka_server.descriptors import requires as descriptor_requires
 from django.db.models import Q, QuerySet
 from embeddings.search import hybrid_search
 from kante.types import Info
@@ -25,3 +27,8 @@ class ChromaCollectionFilter:
     def search(self, info: Info, queryset: QuerySet, value: str, prefix: str) -> tuple[QuerySet, Q]:
         """Annotate the distance and OR the semantic predicate onto the substring one."""
         return hybrid_search(queryset, prefix, value, Q(**{f"{prefix}name__icontains": value}))
+
+    @strawberry_django.filter_field(description=REQUIRES_DESCRIPTION)
+    def requires(self, value: list[DescriptorConstraintInput], prefix: str) -> Q:
+        """A port\'s ``requires``, on the stored descriptors."""
+        return descriptor_requires(models.ChromaCollection, value, prefix)

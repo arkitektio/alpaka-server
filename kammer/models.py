@@ -1,4 +1,6 @@
 from alpaka_server.scoping import OrganizationScopedManager
+from arkitekt_service.service.described import Described
+from django.contrib.postgres.indexes import GinIndex
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
@@ -17,7 +19,7 @@ class Structure(models.Model):
     object = models.PositiveIntegerField(help_text="The object id of the object, on its associated service")
 
 
-class Room(EmbeddedDescriptionMixin, models.Model):
+class Room(EmbeddedDescriptionMixin, Described):
     """A conversation; embeds its title + description so the room list's ``search`` finds it by topic."""
 
     embedding_source_fields = ("title", "description")
@@ -46,7 +48,7 @@ class Room(EmbeddedDescriptionMixin, models.Model):
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
         # The embedding healer's "any row not by the current model?" probe.
-        indexes = [*embedding_indexes("room")]
+        indexes = [*embedding_indexes("room"), GinIndex(fields=["stored_descriptors"], name="room_desc_gin", opclasses=["jsonb_path_ops"])]
 
     @property
     def messages(self):
@@ -84,7 +86,7 @@ class Agent(models.Model):
         default_manager_name = "all_objects"
 
 
-class Message(models.Model):
+class Message(Described):
     """
     Message represent the message of an agent on a room
     """
@@ -134,6 +136,7 @@ class Message(models.Model):
     class Meta:
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
+        indexes = [GinIndex(fields=["stored_descriptors"], name="message_desc_gin", opclasses=["jsonb_path_ops"])]
 
 
 from .signals import *  # noqa: E402,F401,F403

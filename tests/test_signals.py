@@ -80,6 +80,9 @@ def intake(settings):
     }
     yield server
     server.server.shutdown()
+    # Closed, not only stopped: a signal still queued for this intake is refused at once
+    # instead of holding the one sender thread until its timeout.
+    server.server.server_close()
 
 
 def _organization():
@@ -97,17 +100,24 @@ def test_the_manifest_lists_what_alpaka_hosts_with_its_descriptors():
     # Everything alpaka hosts is signalled, and nothing else is.
     assert set(hosted) == set(EXPECTED)
     assert hosted["@alpaka/room"]["label"] == "Room"
+    assert [(d["key"], d["type"]) for d in hosted["@alpaka/room"]["descriptors"]] == [
+        ("@alpaka/contextual_structures", "LIST"),
+        ("@alpaka/n_agents", "INT"),
+    ]
     assert hosted["@alpaka/message"]["descriptors"] == [
         {"key": "@alpaka/from_agent", "type": "BOOL", "description": "Whether an agent posted it"},
         {"key": "@alpaka/is_reply", "type": "BOOL", "description": "Whether it replies to another message"},
+        {"key": "@alpaka/attached_structures", "type": "LIST", "description": "The structures it was posted about (e.g. @mikro/image), sorted, each once"},
     ]
     assert [(d["key"], d["type"]) for d in hosted["@alpaka/llmmodel"]["descriptors"]] == [
         ("@alpaka/features", "LIST"),
         ("@alpaka/input_modalities", "LIST"),
         ("@alpaka/output_modalities", "LIST"),
+        ("@alpaka/provider_kind", "STRING"),
     ]
-    # A provider row holds an API key: it says nothing about itself.
-    assert hosted["@alpaka/provider"]["descriptors"] == []
+    assert [(d["key"], d["type"]) for d in hosted["@alpaka/chromacollection"]["descriptors"]] == [("@alpaka/embedder", "STRING")]
+    # A provider row holds an API key: it says only what kind it is.
+    assert [(d["key"], d["type"]) for d in hosted["@alpaka/provider"]["descriptors"]] == [("@alpaka/provider_kind", "STRING")]
     # The keys a signal may carry are the keys its structure declares.
     for declared in service.manifest()["signals"]:
         assert declared["descriptors"] == [d["key"] for d in hosted[declared["identifier"]]["descriptors"]]
