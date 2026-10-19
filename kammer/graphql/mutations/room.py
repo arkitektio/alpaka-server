@@ -11,6 +11,7 @@ import logging
 from typing import List
 
 import strawberry
+from arkitekt_service.collaborations.guests import require_in_collaboration
 from django.db import transaction
 from kante.types import Info
 
@@ -19,6 +20,10 @@ from kammer.enums import RoomEventKind
 from vector import inputs as vector_inputs
 
 logger = logging.getLogger(__name__)
+
+#: Who may post into a room as a guest of the organization: the roles held in a collaboration that
+#: holds the room (``require_in_collaboration``). Anyone of the organization posts anywhere in it.
+POSTING_ROLES = ["admin", "editor", "bot"]
 
 
 def _owned(info: Info, message_id: strawberry.ID) -> models.Message:
@@ -84,11 +89,15 @@ def send(info: Info, input: SendMessageInput) -> types.Message:
     """Post a complete message into a room as the calling agent.
 
     One transaction with what it is posted about: the message's CREATED, sent at the commit,
-    carries the structures attached after its insert.
+    carries the structures attached after its insert. A guest of the organization posts into a
+    room of their collaborations where they hold a posting role; the message, as part of the
+    room, is in those collaborations with it.
     """
     request = info.context.request
     with transaction.atomic():
         room, agent = streaming.room_and_agent(organization=request.organization, user=request.user, client=request.client, room_id=input.room, agent_name=input.agent_id)
+        # A guest's agent joined the room in this transaction: a refusal takes it back out.
+        require_in_collaboration(room, any_role_of=POSTING_ROLES, info=info)
 
         message = models.Message.objects.for_write().create(
             agent=agent,

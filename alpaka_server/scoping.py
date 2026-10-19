@@ -16,12 +16,16 @@ Ported from kraph's ``evidence.managers`` (same stack, same problem), with a
 ``LLMModel`` via ``provider__organization`` — can use the same manager.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
+from arkitekt_service.collaborations.guests import object_scope
 from django.db import models
+from kante.types import Info
 
 if TYPE_CHECKING:
     from authentikate.models import Organization
+
+M = TypeVar("M", bound=models.Model)
 
 
 class UnscopedAccess(RuntimeError):
@@ -75,3 +79,15 @@ class OrganizationScopedManager(models.Manager):  # type: ignore[type-arg]
         write at a glance.
         """
         return super().get_queryset()
+
+
+def held_to_guest(queryset: models.QuerySet[M], info: Info) -> models.QuerySet[M]:
+    """``queryset``, already held to the request's organization, and, at a root field, for a guest
+    of the organization, to what is in their collaborations (``arkitekt_service.collaborations``).
+    A full member's is returned as it is; below a root field the collaboration gate holds a guest.
+
+    A write a guest may make reads its target through ``for_organization`` alone, and then checks
+    the collaboration itself (``require_in_collaboration``).
+    """
+    narrowed: models.QuerySet[M] = object_scope(queryset, info=info)
+    return narrowed

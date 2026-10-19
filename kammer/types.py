@@ -7,6 +7,7 @@ import strawberry
 import strawberry_django
 from kante.types import Info
 from kammer import filters, models
+from alpaka_server.scoping import held_to_guest
 from alpaka_server.descriptors import DESCRIPTORS_DESCRIPTION, resolve_descriptors
 from authentikate.strawberry.types import Client, Organization, User
 from strawberry import scalars
@@ -46,8 +47,8 @@ class Room:
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
-        """Restrict every read of this type to the request's organization."""
-        return queryset.filter(organization=info.context.request.organization)
+        """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
+        return held_to_guest(queryset.filter(organization=info.context.request.organization), info)
 
     @classmethod
     async def resolve_reference(cls, info, id: strawberry.ID):
@@ -60,7 +61,7 @@ class Room:
         Async because the entity resolver runs in an async context and hands the
         returned awaitable straight back to graphql-core.
         """
-        return await models.Room.objects.for_organization(info.context.request.organization).aget(id=id)
+        return await held_to_guest(models.Room.objects.for_organization(info.context.request.organization), info).aget(id=id)
 
     descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID
@@ -90,8 +91,8 @@ class Agent:
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
-        """Restrict every read of this type to the request's organization."""
-        return queryset.filter(room__organization=info.context.request.organization)
+        """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
+        return held_to_guest(queryset.filter(room__organization=info.context.request.organization), info)
 
     @classmethod
     async def resolve_reference(cls, info, id: strawberry.ID):
@@ -104,7 +105,7 @@ class Agent:
         Async because the entity resolver runs in an async context and hands the
         returned awaitable straight back to graphql-core.
         """
-        return await models.Agent.objects.for_organization(info.context.request.organization).aget(id=id)
+        return await held_to_guest(models.Agent.objects.for_organization(info.context.request.organization), info).aget(id=id)
 
     id: strawberry.ID
     room: Room
@@ -121,8 +122,8 @@ class Message:
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
-        """Restrict every read of this type to the request's organization."""
-        return queryset.filter(room__organization=info.context.request.organization)
+        """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
+        return held_to_guest(queryset.filter(room__organization=info.context.request.organization), info)
 
     @classmethod
     async def resolve_reference(cls, info, id: strawberry.ID):
@@ -135,7 +136,7 @@ class Message:
         Async because the entity resolver runs in an async context and hands the
         returned awaitable straight back to graphql-core.
         """
-        return await models.Message.objects.for_organization(info.context.request.organization).aget(id=id)
+        return await held_to_guest(models.Message.objects.for_organization(info.context.request.organization), info).aget(id=id)
 
     descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID

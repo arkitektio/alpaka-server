@@ -4,16 +4,29 @@ Every root field that reads tenant-owned data goes through a resolver that names
 the request's organization. ``strawberry_django.field()`` on a bare ``list[T]``
 would read every organization's rows, so list fields are backed by the resolvers
 in each app's ``graphql/queries`` package rather than declared directly.
+
+A guest of the organization (``arkitekt_service.collaborations``) reads the rooms and messages put
+in their collaborations, and what is part of them, and nothing else: root fields are narrowed to
+them (``alpaka_server.scoping.held_to_guest``) and the ``CollaborationGate`` drops whatever a
+resolver hands out that is in none of them. Their only write is ``send``, into a room of theirs.
 """
 
 import strawberry
 from alpaka_server.logs import QuietErrorsSchema
 import strawberry_django
+from arkitekt_service.collaborations import graphql as collaboration_types
+from arkitekt_service.graphql import CollaborationGate, annotate_schema
+from authentikate.strawberry import AuthExtension
 from authentikate.strawberry.extension import AuthentikateExtension
+from django.db.models import Model
+from kante.types import Info
 from koherent.strawberry.extension import KoherentExtension
 from strawberry.schema.config import StrawberryConfig
 from strawberry_django.optimizer import DjangoOptimizerExtension
 
+from alpaka_server.scoping import OrganizationScopedManager
+from alpaka_server.service import service as alpaka_service
+from kammer import models as kammer_models
 from kammer import types as kammer_types
 from kammer.graphql import mutations as kammer_mutations
 from kammer.graphql import queries as kammer_queries
@@ -28,9 +41,35 @@ from vector.graphql import mutations as vector_mutations
 from vector.graphql import queries as vector_queries
 
 
+#: What a full member may put in a collaboration, each read through its organization. A provider
+#: holds an API key, and its models and the collections they embed are the organization's to call,
+#: on its credentials: none of them is shown to a guest.
+SHAREABLE: dict[type[Model], OrganizationScopedManager] = {kammer_models.Room: kammer_models.Room.objects, kammer_models.Message: kammer_models.Message.objects}
+
+
+def _shareable(model: type[Model], id: strawberry.ID, info: Info) -> Model:
+    """The object a collaboration mutation names, in the request's organization; refused unless it is shareable."""
+    manager = SHAREABLE.get(model)
+    if manager is None:
+        raise PermissionError(f"A {model.__name__} is never put in a collaboration: only rooms and messages are")
+    found: Model = manager.for_organization(info.context.request.organization).get(id=id)
+    return found
+
+
+#: The collaborations of alpaka's rooms, which a guest of the organization is granted.
+collaboration_api = collaboration_types.resolvers(fetch=_shareable)
+
+#: Who makes and changes collaborations: full members holding one of these roles.
+COLLABORATING_ROLES = ["admin", "editor"]
+
+
 @strawberry.type(description="The root query type")
 class Query:
     """The root query type."""
+
+    # Collaborations
+    collaborations: list[collaboration_types.Collaboration] = strawberry_django.field(resolver=collaboration_api.collaborations, description="List the organization's collaborations: what a guest granted one sees of it (a guest: the collaborations granted to them)")
+    collaboration: collaboration_types.Collaboration = strawberry_django.field(resolver=collaboration_api.collaboration, description="Get a single collaboration by ID")
 
     # Rooms and messages
     room = strawberry_django.field(resolver=kammer_queries.room, description="Get a single room by ID")
@@ -66,10 +105,18 @@ class Query:
 class Mutation:
     """The root mutation type."""
 
+    # Collaborations
+    create_collaboration = strawberry_django.mutation(resolver=collaboration_api.create_collaboration, extensions=[AuthExtension(any_role_of=COLLABORATING_ROLES)], description="Create an empty collaboration, to put rooms in and grant a guest")
+    add_to_collaboration = strawberry_django.mutation(resolver=collaboration_api.add_to_collaboration, extensions=[AuthExtension(any_role_of=COLLABORATING_ROLES)], description="Put a room or a message in a collaboration, with what it needs to be seen: a room comes with its agents and messages")
+    remove_from_collaboration = strawberry_django.mutation(resolver=collaboration_api.remove_from_collaboration, extensions=[AuthExtension(any_role_of=COLLABORATING_ROLES)], description="Take a room or a message out of a collaboration, with what it brought that nothing else there needs")
+    delete_collaboration = strawberry_django.mutation(resolver=collaboration_api.delete_collaboration, extensions=[AuthExtension(any_role_of=COLLABORATING_ROLES)], description="Delete a collaboration: whoever was granted it sees nothing of it any more")
+
     # Rooms and messages
     create_room = strawberry_django.mutation(resolver=kammer_mutations.create_room, description="Open a new room")
     delete_room = strawberry_django.mutation(resolver=kammer_mutations.delete_room, description="Delete a room and its messages")
-    send = strawberry_django.mutation(resolver=kammer_mutations.send, description="Post a complete message into a room")
+    # Open to a guest of the organization holding a posting role in a collaboration that holds the
+    # room: the resolver checks it (``require_in_collaboration``). Every other mutation refuses guests.
+    send = strawberry_django.mutation(resolver=kammer_mutations.send, extensions=[AuthExtension(allow_scoped=True)], description="Post a complete message into a room")
     start_message = strawberry_django.mutation(resolver=kammer_mutations.start_message, description="Open a message to stream text into. Only the starting agent (same user and client) can append to or finish it.")
     append_message = strawberry_django.mutation(resolver=kammer_mutations.append_message, description="Append a delta to a streaming message. Batch deltas (every ~100-250 ms or ~30 characters) and await each call before sending the next, so they arrive in order.")
     finish_message = strawberry_django.mutation(resolver=kammer_mutations.finish_message, description="Close a streaming message. Pass the full final text so any delta lost on the way is repaired; call it in a finally block so a crashed stream never stays open.")
@@ -114,7 +161,11 @@ schema = Schema(
     query=Query,
     mutation=Mutation,
     subscription=Subscription,
-    extensions=[DjangoOptimizerExtension, AuthentikateExtension, KoherentExtension],
+    # A guest of the organization is handed only what is in their collaborations (CollaborationGate).
+    extensions=[DjangoOptimizerExtension, AuthentikateExtension, CollaborationGate, KoherentExtension],
     types=[llm_types.Provider, llm_types.LLMModel, vector_types.ChromaCollection],
     config=StrawberryConfig(scalar_map={**kammer_scalar_map, **llm_scalar_map}),
 )
+
+# Which structure each type is (`@identified`), and, behind the gate, that alpaka lets guests in.
+annotate_schema(schema, alpaka_service)

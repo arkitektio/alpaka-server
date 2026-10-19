@@ -6,6 +6,7 @@ from typing import Annotated, Optional, List
 from strawberry.types import Info
 from authentikate.strawberry.types import Client, User
 from alpaka_server.descriptors import DESCRIPTORS_DESCRIPTION, resolve_descriptors
+from alpaka_server.scoping import held_to_guest
 from kammer.type_gen import create_stats_type
 from kammer.types import build_prescoper
 from llm import models, enums, filters, scalars as llmscalars
@@ -107,7 +108,7 @@ class LLMModel:
         fields and nested traversals alike, so scoping lives here rather than in
         each resolver.
         """
-        return queryset.filter(provider__organization=info.context.request.organization)
+        return held_to_guest(queryset.filter(provider__organization=info.context.request.organization), info)
 
     descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID
@@ -128,8 +129,8 @@ class Provider:
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
-        """Restrict every read of this type to the request's organization."""
-        return queryset.filter(organization=info.context.request.organization)
+        """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
+        return held_to_guest(queryset.filter(organization=info.context.request.organization), info)
 
     descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID
@@ -164,7 +165,7 @@ class DefaultUse:
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
         """Restrict to the calling user's own defaults in this organization."""
-        return queryset.filter(organization=info.context.request.organization, user=info.context.request.user)
+        return held_to_guest(queryset.filter(organization=info.context.request.organization, user=info.context.request.user), info)
 
     id: strawberry.ID
     model: "LLMModel"
@@ -180,8 +181,8 @@ class UsageRecord:
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
-        """Restrict every read of this type to the request's organization."""
-        return queryset.filter(organization=info.context.request.organization)
+        """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
+        return held_to_guest(queryset.filter(organization=info.context.request.organization), info)
 
     id: strawberry.ID
     user: Optional[User]
@@ -258,8 +259,8 @@ class Budget:
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
-        """Restrict every read of this type to the request's organization."""
-        return queryset.filter(organization=info.context.request.organization)
+        """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
+        return held_to_guest(queryset.filter(organization=info.context.request.organization), info)
 
     id: strawberry.ID
     user: Optional[User] = strawberry_django.field(description="The user this budget is restricted to, or null for the whole organization")

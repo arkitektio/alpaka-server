@@ -7,6 +7,7 @@ from typing import Annotated, Optional
 import strawberry
 import strawberry_django
 from alpaka_server.descriptors import DESCRIPTORS_DESCRIPTION, resolve_descriptors
+from alpaka_server.scoping import held_to_guest
 from authentikate.strawberry.types import User
 from strawberry import scalars
 from strawberry.types import Info
@@ -52,8 +53,8 @@ class ChromaCollection:
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
-        """Restrict every read of this type to the request's organization."""
-        return queryset.filter(organization=info.context.request.organization)
+        """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
+        return held_to_guest(queryset.filter(organization=info.context.request.organization), info)
 
     descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
     id: strawberry.ID

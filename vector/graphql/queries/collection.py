@@ -8,9 +8,10 @@ Only the singular fetcher lives here — the list field is a plain
 import strawberry
 from kante.types import Info
 
+from alpaka_server.scoping import held_to_guest
 from vector import models, types
 
 
 def chroma_collection(info: Info, id: strawberry.ID) -> types.ChromaCollection:
     """Get a single Chroma collection by ID."""
-    return models.ChromaCollection.objects.for_organization(info.context.request.organization).get(id=id)
+    return held_to_guest(models.ChromaCollection.objects.for_organization(info.context.request.organization), info).get(id=id)

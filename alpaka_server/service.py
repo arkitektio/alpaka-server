@@ -18,6 +18,7 @@ agent's to say (``alpaka_server.hook_agent``), a different thing with its own co
 
 from typing import Literal
 
+from arkitekt_service.collaborations import items as collaboration_items
 from arkitekt_service.service import Service, organization_of
 from django.db.models import Model
 from django.db.models.signals import m2m_changed, post_delete, post_save
@@ -31,10 +32,27 @@ from vector import models as vector_models
 service = Service("alpaka", hosts=contract.description.hosts, description="LLM rooms and vector collections.")
 
 
+# --- Collaborations: what an object needs to be seen, put in a collaboration along with it ------------------
+# What is part of a room (its agents, its messages) is in a collaboration with it by itself. These
+# name the rest: the structure references its messages were posted about. Only rooms and messages
+# are put in one (``alpaka_server.schema.SHAREABLE``): a provider holds an API key, and
+# its models and the collections they embed are the organization's to call, on its credentials.
+
+
+def _room_needs(room: kammer_models.Room) -> list[kammer_models.Structure]:
+    """The structures a room's messages were posted about."""
+    return list(kammer_models.Structure.objects.filter(message__room=room).distinct())
+
+
+def _message_needs(message: kammer_models.Message) -> list[Model]:
+    """The agent that posted a message, the agents it is addressed to, and the structures it was posted about."""
+    return [message.agent, *message.targets.all(), *message.attached_structures.all()]
+
+
 # --- Structures: what alpaka hosts ----------------------------------------------------
 
-room = service.structure(kammer_models.Room, "@alpaka/room", describe=descriptors.room_descriptors)
-message = service.structure(kammer_models.Message, "@alpaka/message", describe=descriptors.message_descriptors)
+room = service.structure(kammer_models.Room, "@alpaka/room", describe=descriptors.room_descriptors, depends=_room_needs)
+message = service.structure(kammer_models.Message, "@alpaka/message", describe=descriptors.message_descriptors, depends=_message_needs)
 llmmodel = service.structure(llm_models.LLMModel, "@alpaka/llmmodel", describe=descriptors.llm_model_descriptors)
 chromacollection = service.structure(vector_models.ChromaCollection, "@alpaka/chromacollection", describe=descriptors.collection_descriptors)
 # Only its kind: a provider row holds an API key, and nothing else about it belongs in a signal.
@@ -80,6 +98,24 @@ def _restore_models_of(sender: type[llm_models.Provider], instance: llm_models.P
 
 
 post_save.connect(_restore_models_of, sender=llm_models.Provider, weak=False, dispatch_uid="alpaka:provider:models")
+
+
+# A message is its room's, not part of the agent that posted it: a message put in a collaboration
+# brings its agent, and the agent's other messages in the room stay out.
+service.not_part_of(kammer_models.Message, "agent")
+
+
+def _bring_attached(sender: type[Model], instance: Model, action: M2mAction, reverse: bool, model: type[Model], pk_set: set[int] | None, **_: object) -> None:
+    """Structures attached to a message (``send``, ``finishMessage``) come into the collaborations of its room, and its own."""
+    if action != "post_add":
+        return
+    messages = kammer_models.Message.all_objects.filter(pk__in=pk_set or ()) if reverse else kammer_models.Message.all_objects.filter(pk=instance.pk)
+    for posted in messages.select_related("room"):
+        collaboration_items.refresh(posted)
+        collaboration_items.refresh(posted.room)
+
+
+m2m_changed.connect(_bring_attached, sender=kammer_models.Message.attached_structures.through, weak=False, dispatch_uid="alpaka:message:collaborations")
 
 
 # --- Signals: what alpaka announces ----------------------------------------------------

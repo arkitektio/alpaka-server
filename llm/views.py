@@ -17,6 +17,8 @@ import time
 from typing import Any, AsyncGenerator, AsyncIterable, Awaitable, Callable, Optional, Union, Tuple
 from django.http import JsonResponse, StreamingHttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
+from authentikate.errors import FullMembershipRequired
+from authentikate.scoped import require_full_member
 from authentikate.utils import authenticate_header_or_none
 from authentikate.expand import (
     aexpand_user_from_token,
@@ -65,6 +67,12 @@ async def authenticate_request(request: HttpRequest) -> Tuple[User, object, Orga
     token = await authenticate_header_or_none(request.headers)
     if not token:
         raise AuthenticationError("Missing or invalid authentication token")
+    try:
+        # A guest of the organization reads its collaborations over GraphQL; its models are
+        # called on its credentials, by its members only.
+        require_full_member(token)
+    except FullMembershipRequired as e:
+        raise AuthenticationError("A guest of the organization cannot call its models") from e
 
     try:
         user = await aexpand_user_from_token(token)

@@ -148,7 +148,7 @@ async def test_provider_api_key_is_not_exposed(aexecute):
     """The Provider type has no field that returns the raw credential."""
     from alpaka_server.schema import schema
 
-    provider_type = schema.as_str().split("type Provider {")[1].split("}")[0]
+    provider_type = schema.as_str().split("type Provider ")[1].split("}")[0]
     assert "apiKey" not in provider_type
     assert "hasApiKey" in provider_type
 

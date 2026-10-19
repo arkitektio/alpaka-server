@@ -8,14 +8,15 @@ Only the singular fetchers live here — the list fields are plain
 import strawberry
 from kante.types import Info
 
+from alpaka_server.scoping import held_to_guest
 from kammer import models, types
 
 
 def room(info: Info, id: strawberry.ID) -> types.Room:
     """Get a single room by ID."""
-    return models.Room.objects.for_organization(info.context.request.organization).get(id=id)
+    return held_to_guest(models.Room.objects.for_organization(info.context.request.organization), info).get(id=id)
 
 
 def message(info: Info, id: strawberry.ID) -> types.Message:
     """Get a single message by ID."""
-    return models.Message.objects.for_organization(info.context.request.organization).get(id=id)
+    return held_to_guest(models.Message.objects.for_organization(info.context.request.organization), info).get(id=id)

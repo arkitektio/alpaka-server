@@ -11,17 +11,18 @@ from typing import Optional
 import strawberry
 from kante.types import Info
 
+from alpaka_server.scoping import held_to_guest
 from llm import enums, manager, models, types
 
 
 def provider(info: Info, id: strawberry.ID) -> types.Provider:
     """Get a single provider by ID."""
-    return models.Provider.objects.for_organization(info.context.request.organization).get(id=id)
+    return held_to_guest(models.Provider.objects.for_organization(info.context.request.organization), info).get(id=id)
 
 
 def llm_model(info: Info, id: strawberry.ID) -> types.LLMModel:
     """Get a single LLM model by ID."""
-    return models.LLMModel.objects.for_organization(info.context.request.organization).select_related("provider").get(id=id)
+    return held_to_guest(models.LLMModel.objects.for_organization(info.context.request.organization), info).select_related("provider").get(id=id)
 
 
 def default_model_for(info: Info, kind: enums.DefaultKind) -> Optional[types.LLMModel]:

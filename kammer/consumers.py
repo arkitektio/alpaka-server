@@ -39,6 +39,7 @@ from urllib.parse import parse_qs
 
 from asgiref.sync import sync_to_async
 from authentikate.expand import aexpand_token_context
+from authentikate.scoped import require_full_member
 from authentikate.settings import get_settings
 from authentikate.utils import authenticate_token
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
@@ -146,7 +147,8 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
 
     async def _authenticate(self, token: str) -> None:
         try:
-            decoded = await authenticate_token(token, get_settings())
+            # Streaming is for the organization's agents: a guest posts with `send`, into a room of theirs.
+            decoded = require_full_member(await authenticate_token(token, get_settings()))
             context = await aexpand_token_context(decoded)
         except Exception as e:
             # Malformed, expired, unknown-issuer and blocked-membership failures
