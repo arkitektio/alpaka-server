@@ -73,5 +73,5 @@ def test_reembed_stale_runs_one_bounded_pass():
 def test_the_service_and_the_agent_are_separate_declarations():
     assert "actions" not in service.manifest() and not hasattr(service, "action")
     assert set(agent.manifest()) == {"agent", "identifier", "description", "actions", "manifest_version"}
-    # Offered, not wired: nothing in an action says when it runs.
-    assert all(set(action) == {"interface", "name", "description"} for action in agent.manifest()["actions"])
+    # Offered, not wired: nothing in an action says when it runs (what it takes, it says).
+    assert all(set(action) == {"interface", "name", "description", "args"} for action in agent.manifest()["actions"])

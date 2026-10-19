@@ -108,17 +108,37 @@ async def test_a_guest_reads_the_room_in_their_collaboration_and_nothing_else(au
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_message_put_in_alone_brings_its_agent_and_not_the_rest_of_the_room(authenticated_context, guest):
-    room, (shared, kept) = await _room("Room", "shared", "kept back")
-    ctx = guest({await _collaboration(shared): []})
+async def test_a_message_is_shared_with_its_room_not_alone(authenticated_context, guest):
+    room, (message,) = await _room("Room", "only this")
+    # Alone, its room would be unreadable where it points at it: the room is put in instead.
+    with pytest.raises(collaboration_items.SharedWithItsWhole):
+        await _collaboration(message)
+    assert not await sync_to_async(CollaborationItem.objects.exists)()
 
-    read = await _run(ctx, MESSAGE, id=str(shared.id))
+    ctx = guest({await _collaboration(room, message): []})  # with its room, it is in already
+    read = await _run(ctx, MESSAGE, id=str(message.id))
     assert not read.errors, read.errors
     assert read.data["message"]["agent"]["name"] == "Room agent"
-    # The agent came along, but its other messages are the room's, not part of it.
-    assert [m["id"] for m in (await _run(ctx, MESSAGES)).data["messages"]] == [str(shared.id)]
-    assert (await _run(ctx, MESSAGE, id=str(kept.id))).errors
-    assert (await _run(ctx, ROOMS)).data["rooms"] == []
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_who_made_and_posts_in_a_shared_room_comes_with_it(authenticated_context, guest):
+    room, _ = await _room("Room", "hi")
+    ctx = guest({await _collaboration(room): []})
+
+    read = await _run(
+        ctx,
+        "query ($id: ID!) { room(id: $id) { creator { sub activeOrganization { slug } } organization { slug } agents { user { sub } client { clientId } } } }",
+        id=str(room.id),
+    )
+    assert not read.errors, read.errors
+    assert read.data["room"] == {
+        # Who is at work where is theirs, not the room's.
+        "creator": {"sub": "1", "activeOrganization": None},
+        "organization": {"slug": "static_org"},
+        "agents": [{"user": {"sub": "1"}, "client": {"clientId": "oinsoins"}}],
+    }
 
 
 @pytest.mark.django_db(transaction=True)
