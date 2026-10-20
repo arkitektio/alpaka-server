@@ -31,25 +31,25 @@ ROLES = [
 #: The kind of provider that runs a model (``ollama``, ``openai``, ...): what a privacy-sensitive
 #: action selects on, requiring a provider that runs on the hub (``ollama``, ``ollaya``). One key for
 #: providers and their models, so one `requires` asks both.
-_PROVIDER_KIND = Descriptor(key="@alpaka/provider_kind", type="STRING", description="The kind of provider that runs it (ollama, ollaya, openai, ...): ollama and ollaya run on the hub")
+_PROVIDER_KIND = Descriptor(key="@alpaka/provider_kind", type="STRING", description="The kind of provider that runs the model (ollama, ollaya, openai, anthropic, ...): ollama and ollaya run locally on the hub")
 
 ROOM_DESCRIPTORS = [
-    Descriptor(key="@alpaka/contextual_structures", type="LIST", description="The structures it is about (e.g. @mikro/image), sorted, each once"),
-    Descriptor(key="@alpaka/n_agents", type="INT", description="How many agents take part in it"),
+    Descriptor(key="@alpaka/contextual_structures", type="LIST", description="The structures the conversation is about (e.g. @mikro/image), sorted, each once"),
+    Descriptor(key="@alpaka/n_agents", type="INT", description="How many agents (participants) take part in the conversation"),
 ]
 MESSAGE_DESCRIPTORS = [
-    Descriptor(key="@alpaka/from_agent", type="BOOL", description="Whether an agent posted it"),
+    Descriptor(key="@alpaka/from_agent", type="BOOL", description="Whether an agent posted the message"),
     Descriptor(key="@alpaka/is_reply", type="BOOL", description="Whether it replies to another message"),
-    Descriptor(key="@alpaka/attached_structures", type="LIST", description="The structures it was posted about (e.g. @mikro/image), sorted, each once"),
+    Descriptor(key="@alpaka/attached_structures", type="LIST", description="The structures the message was posted about (e.g. @mikro/image), sorted, each once"),
 ]
 LLM_MODEL_DESCRIPTORS = [
-    Descriptor(key="@alpaka/features", type="LIST", description="What it can do (chat, embedding, ...)"),
-    Descriptor(key="@alpaka/input_modalities", type="LIST", description="The modalities it accepts as input"),
-    Descriptor(key="@alpaka/output_modalities", type="LIST", description="The modalities it produces as output"),
+    Descriptor(key="@alpaka/features", type="LIST", description="What the model can do: chat, embedding, vision or decision"),
+    Descriptor(key="@alpaka/input_modalities", type="LIST", description="The kinds of content it accepts as input (text, image, audio, video)"),
+    Descriptor(key="@alpaka/output_modalities", type="LIST", description="The kinds of content it produces as output (text, image, audio, video)"),
     _PROVIDER_KIND,
 ]
 CHROMA_COLLECTION_DESCRIPTORS = [
-    Descriptor(key="@alpaka/embedder", type="STRING", description="The model its documents are embedded by (its model id): a query is embedded by the same"),
+    Descriptor(key="@alpaka/embedder", type="STRING", description="The embedding model its documents are embedded by (its model id): a search query is embedded by the same"),
 ]
 #: Only its kind: a provider row holds an API key, and nothing secret is described.
 PROVIDER_DESCRIPTORS = [_PROVIDER_KIND]
@@ -65,32 +65,32 @@ HOSTS = Hosts(
     structures=[
         Structure(
             identifier="@alpaka/room",
-            label="Room",
-            description="A room: a conversation between users and agents.",
+            label="Chat Room",
+            description="A chat room: a conversation in which users and agents (the apps they take part through) exchange messages.",
             descriptors=ROOM_DESCRIPTORS,
         ),
         Structure(
             identifier="@alpaka/message",
-            label="Message",
-            description="A message an agent posted in a room.",
+            label="Chat Message",
+            description="A chat message an agent posted in a room, possibly in reply to another message.",
             descriptors=MESSAGE_DESCRIPTORS,
         ),
         Structure(
             identifier="@alpaka/llmmodel",
-            label="Llm Model",
-            description="A language model reachable through one of the organization's providers.",
+            label="LLM Model",
+            description="A large language model (LLM) for chat, vision or embeddings, reachable through one of the organization's AI providers.",
             descriptors=LLM_MODEL_DESCRIPTORS,
         ),
         Structure(
             identifier="@alpaka/chromacollection",
             label="Chroma Collection",
-            description="A vector collection: documents searchable by meaning.",
+            description="A collection in the Chroma vector database: documents embedded by one model and searchable by meaning, like a knowledge base.",
             descriptors=CHROMA_COLLECTION_DESCRIPTORS,
         ),
         Structure(
             identifier="@alpaka/provider",
-            label="Provider",
-            description="A provider of language models, as configured by an organization.",
+            label="LLM Provider",
+            description="A provider of language models (OpenAI, Anthropic, Ollama, ...), as configured by an organization with its API key and endpoint.",
             descriptors=PROVIDER_DESCRIPTORS,
         ),
     ],
@@ -99,31 +99,31 @@ HOSTS = Hosts(
             identifier="@alpaka/room",
             kinds=["CREATED", "DELETED"],
             descriptors=_keys(ROOM_DESCRIPTORS),
-            description="A room (a conversation) was created or deleted.",
+            description="A chat room (a conversation) was created or deleted.",
         ),
         Signal(
             identifier="@alpaka/message",
             kinds=["CREATED", "UPDATED"],
             descriptors=_keys(MESSAGE_DESCRIPTORS),
-            description="A message was posted in a room (a streamed reply: once it finished).",
+            description="A chat message was posted in a room (a streamed reply: once it finished).",
         ),
         Signal(
             identifier="@alpaka/llmmodel",
             kinds=["CREATED", "UPDATED"],
             descriptors=_keys(LLM_MODEL_DESCRIPTORS),
-            description="A language model became available or changed (e.g. after a provider refresh).",
+            description="A language model (LLM) became available or changed (e.g. after a provider refresh).",
         ),
         Signal(
             identifier="@alpaka/chromacollection",
             kinds=["CREATED", "DELETED"],
             descriptors=_keys(CHROMA_COLLECTION_DESCRIPTORS),
-            description="A vector collection was created or deleted.",
+            description="A vector collection (documents searchable by meaning) was created or deleted.",
         ),
         Signal(
             identifier="@alpaka/provider",
             kinds=["CREATED", "UPDATED"],
             descriptors=_keys(PROVIDER_DESCRIPTORS),
-            description="An LLM provider was added or changed.",
+            description="An LLM provider (OpenAI, Ollama, ...) was added or changed.",
         ),
     ],
 )

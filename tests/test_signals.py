@@ -99,15 +99,15 @@ def test_the_manifest_lists_what_alpaka_hosts_with_its_descriptors():
     hosted = {s["identifier"]: s for s in service.manifest()["structures"]}
     # Everything alpaka hosts is signalled, and nothing else is.
     assert set(hosted) == set(EXPECTED)
-    assert hosted["@alpaka/room"]["label"] == "Room"
+    assert hosted["@alpaka/room"]["label"] == "Chat Room"
     assert [(d["key"], d["type"]) for d in hosted["@alpaka/room"]["descriptors"]] == [
         ("@alpaka/contextual_structures", "LIST"),
         ("@alpaka/n_agents", "INT"),
     ]
     assert hosted["@alpaka/message"]["descriptors"] == [
-        {"key": "@alpaka/from_agent", "type": "BOOL", "description": "Whether an agent posted it"},
+        {"key": "@alpaka/from_agent", "type": "BOOL", "description": "Whether an agent posted the message"},
         {"key": "@alpaka/is_reply", "type": "BOOL", "description": "Whether it replies to another message"},
-        {"key": "@alpaka/attached_structures", "type": "LIST", "description": "The structures it was posted about (e.g. @mikro/image), sorted, each once"},
+        {"key": "@alpaka/attached_structures", "type": "LIST", "description": "The structures the message was posted about (e.g. @mikro/image), sorted, each once"},
     ]
     assert [(d["key"], d["type"]) for d in hosted["@alpaka/llmmodel"]["descriptors"]] == [
         ("@alpaka/features", "LIST"),
