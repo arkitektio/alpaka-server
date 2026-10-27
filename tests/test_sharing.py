@@ -65,7 +65,7 @@ def _refused(result: ExecutionResult, reason: str) -> None:
 @sync_to_async
 def _room(title: str, *texts: str) -> tuple[kammer_models.Room, list[kammer_models.Message]]:
     """A room of the organization, with one agent posting ``texts`` into it."""
-    org = Organization.objects.get(slug="static_org")
+    org = Organization.objects.get(identifier="static_issuer#static_org")
     user = User.objects.get(sub="1", iss="static_issuer")
     room = kammer_models.Room.objects.for_write().create(title=title, organization=org, creator=user)
     agent = kammer_models.Agent.objects.for_write().create(room=room, client=Client.objects.get(client_id="oinsoins"), user=user, name=f"{title} agent")
@@ -75,7 +75,7 @@ def _room(title: str, *texts: str) -> tuple[kammer_models.Room, list[kammer_mode
 @sync_to_async
 def _collaboration(*objects: kammer_models.Room | kammer_models.Message) -> Collaboration:
     """A collaboration of the organization holding ``objects``, as a full member puts them in."""
-    collaboration = Collaboration.objects.create(organization=Organization.objects.get(slug="static_org"), name="Shared")
+    collaboration = Collaboration.objects.create(organization=Organization.objects.get(identifier="static_issuer#static_org"), name="Shared")
     for obj in objects:
         collaboration_items.add(collaboration, obj)
     return collaboration
@@ -129,14 +129,14 @@ async def test_who_made_and_posts_in_a_shared_room_comes_with_it(authenticated_c
 
     read = await _run(
         ctx,
-        "query ($id: ID!) { room(id: $id) { creator { sub activeOrganization { slug } } organization { slug } agents { user { sub } client { clientId } } } }",
+        "query ($id: ID!) { room(id: $id) { creator { sub activeOrganization { identifier } } organization { identifier } agents { user { sub } client { clientId } } } }",
         id=str(room.id),
     )
     assert not read.errors, read.errors
     assert read.data["room"] == {
         # Who is at work where is theirs, not the room's.
         "creator": {"sub": "1", "activeOrganization": None},
-        "organization": {"slug": "static_org"},
+        "organization": {"identifier": "static_issuer#static_org"},
         "agents": [{"user": {"sub": "1"}, "client": {"clientId": "oinsoins"}}],
     }
 
@@ -162,7 +162,7 @@ async def test_no_provider_model_or_collection_is_shown_to_a_guest_or_put_in_a_c
 
     @sync_to_async
     def seed() -> llm_models.Provider:
-        org = Organization.objects.get(slug="static_org")
+        org = Organization.objects.get(identifier="static_issuer#static_org")
         provider = llm_models.Provider.objects.for_write().create(name="Secret provider", organization=org, api_key="sk-do-not-leak")
         model = llm_models.LLMModel.objects.for_write().create(provider=provider, model_id="secret-model", label="Secret", features=["embedding"])
         vector_models.ChromaCollection.objects.for_write().create(name="secret-docs", embedder=model, organization=org)

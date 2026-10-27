@@ -35,8 +35,8 @@ ROOM = """
 
 
 @sync_to_async
-def make_room(slug="static_org"):
-    org = Organization.objects.get(slug=slug)
+def make_room(org="static_org"):
+    org = Organization.objects.get(identifier=f"static_issuer#{org}")
     return kammer_models.Room.objects.for_write().create(title="stream", organization=org)
 
 

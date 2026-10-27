@@ -17,7 +17,7 @@ APP = consumers.MessageStreamConsumer.as_asgi()
 
 @sync_to_async
 def make_room():
-    org = Organization.objects.get(slug="static_org")
+    org = Organization.objects.get(identifier="static_issuer#static_org")
     return kammer_models.Room.objects.for_write().create(title="ws", organization=org)
 
 

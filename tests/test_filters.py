@@ -15,7 +15,7 @@ from kammer import models
 def seed():
     """Create a room with three messages whose ``created_at`` is strictly
     increasing, plus a structure the room is "talking about"."""
-    org = Organization.objects.get(slug="static_org")
+    org = Organization.objects.get(identifier="static_issuer#static_org")
     user = User.objects.get(sub="1", iss="static_issuer")
     client = Client.objects.get(client_id="oinsoins")
 

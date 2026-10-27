@@ -194,7 +194,7 @@ def authenticated_context(db, backend_stack) -> HttpContext:
         sub="1", iss="static_issuer", defaults={"username": "static_issuer_1"}
     )
     client, _ = Client.objects.get_or_create(client_id="oinsoins")
-    org, _ = Organization.objects.get_or_create(slug="static_org")
+    org, _ = Organization.objects.get_or_create(identifier="static_issuer#static_org")
     membership, _ = Membership.objects.get_or_create(
         user=user,
         organization=org,
@@ -223,7 +223,7 @@ def other_org_context(db, backend_stack) -> HttpContext:
         sub="9", iss="static_issuer", defaults={"username": "static_issuer_9"}
     )
     client, _ = Client.objects.get_or_create(client_id="oinsoins")
-    org, _ = Organization.objects.get_or_create(slug="other_org")
+    org, _ = Organization.objects.get_or_create(identifier="static_issuer#other_org")
     membership, _ = Membership.objects.get_or_create(
         user=user,
         organization=org,
@@ -250,7 +250,7 @@ def same_org_other_user_context(db, backend_stack) -> HttpContext:
     """A context for a *different* user in the same organization (static token "test2")."""
     user, _ = User.objects.get_or_create(sub="2", iss="static_issuer", defaults={"username": "static_issuer_2"})
     client, _ = Client.objects.get_or_create(client_id="oinsoins")
-    org, _ = Organization.objects.get_or_create(slug="static_org")
+    org, _ = Organization.objects.get_or_create(identifier="static_issuer#static_org")
     membership, _ = Membership.objects.get_or_create(user=user, organization=org)
 
     request = UniversalRequest(
@@ -321,7 +321,7 @@ def simple_api_context(db, backend_stack) -> HttpContext:
         sub="1", iss="static_issuer", defaults={"username": "static_issuer_1"}
     )
     client, _ = Client.objects.get_or_create(client_id="oinsoins")
-    org, _ = Organization.objects.get_or_create(slug="static_org")
+    org, _ = Organization.objects.get_or_create(identifier="static_issuer#static_org")
     membership, _ = Membership.objects.get_or_create(
         user=user,
         organization=org,

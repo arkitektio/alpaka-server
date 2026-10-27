@@ -18,7 +18,7 @@ from vector import models as vector_models
 @sync_to_async
 def seed_static_org():
     """Create one room, provider, model and collection owned by ``static_org``."""
-    org = Organization.objects.get(slug="static_org")
+    org = Organization.objects.get(identifier="static_issuer#static_org")
     user = User.objects.get(sub="1", iss="static_issuer")
     client = Client.objects.get(client_id="oinsoins")
 
@@ -256,7 +256,7 @@ async def test_update_provider_refuses_other_organizations(aexecute, other_org_c
 @pytest.mark.asyncio
 async def test_list_pagination_applies(aexecute):
     """``pagination`` is honoured by the hand-rolled list resolvers."""
-    org = await sync_to_async(Organization.objects.get)(slug="static_org")
+    org = await sync_to_async(Organization.objects.get)(identifier="static_issuer#static_org")
     await sync_to_async(llm_models.Provider.objects.for_write().create)(name="P1", organization=org)
     await sync_to_async(llm_models.Provider.objects.for_write().create)(name="P2", organization=org)
     await sync_to_async(llm_models.Provider.objects.for_write().create)(name="P3", organization=org)

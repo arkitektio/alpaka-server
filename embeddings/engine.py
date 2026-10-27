@@ -132,12 +132,13 @@ def warm_up() -> None:
         _model()
 
 
-def source_text(name: str | None, description: str | None) -> str | None:
-    """The text a row is embedded from: name and description, each stripped, newline-joined.
+def source_text(*fields: str | None) -> str | None:
+    """The text a row is embedded from: its source fields (name, description, ...), each stripped,
+    newline-joined.
 
-    ``None`` when both are blank -- such a row has no vector (never a zero vector).
+    ``None`` when all are blank -- such a row has no vector (never a zero vector).
     """
-    parts = [part.strip() for part in (name, description) if part and part.strip()]
+    parts = [part.strip() for part in fields if part and part.strip()]
     return "\n".join(parts) if parts else None
 
 

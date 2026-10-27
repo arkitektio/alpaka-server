@@ -22,7 +22,7 @@ def test_auto_configure_partner_provisions_provider_on_org_creation():
         auto_configure=True,
     )
 
-    org = Organization.objects.create(slug="partner_test_org")
+    org = Organization.objects.create(identifier="static_issuer#partner_test_org")
 
     provider = llm_models.Provider.objects.for_organization(org).get(name="Shared OpenRouter")
     assert provider.partner.identifier == "shared-openrouter"
@@ -39,7 +39,7 @@ def test_non_auto_partner_is_not_provisioned():
         auto_configure=False,
     )
 
-    org = Organization.objects.create(slug="manual_test_org")
+    org = Organization.objects.create(identifier="static_issuer#manual_test_org")
 
     assert not llm_models.Provider.objects.for_organization(org).exists()
 
@@ -53,7 +53,7 @@ def test_auto_configure_is_idempotent():
         auto_configure=True,
     )
 
-    org = Organization.objects.create(slug="idempotent_org")
+    org = Organization.objects.create(identifier="static_issuer#idempotent_org")
     # Re-running must not create a duplicate (matches per-org (organization, name) uniqueness).
     auto_configure_provider_partners(org)
 
@@ -70,8 +70,8 @@ def test_same_partner_provisions_distinct_providers_across_orgs():
         auto_configure=True,
     )
 
-    org_a = Organization.objects.create(slug="fleet_org_a")
-    org_b = Organization.objects.create(slug="fleet_org_b")
+    org_a = Organization.objects.create(identifier="static_issuer#fleet_org_a")
+    org_b = Organization.objects.create(identifier="static_issuer#fleet_org_b")
 
     assert llm_models.Provider.objects.for_organization(org_a).filter(name="Fleet Provider").exists()
     assert llm_models.Provider.objects.for_organization(org_b).filter(name="Fleet Provider").exists()
@@ -89,7 +89,7 @@ def test_a_typesafe_shorthand_partner_reaches_the_hosted_api_by_default():
     assert partner["kind"] == "typesafe" and "api_base" not in partner
 
     llm_models.ProviderPartner.objects.create(**{**partner, "identifier": "typesafe-shorthand"})
-    org = Organization.objects.create(slug="typesafe_shorthand_org")
+    org = Organization.objects.create(identifier="static_issuer#typesafe_shorthand_org")
 
     provider = llm_models.Provider.objects.for_organization(org).get(kind="typesafe")
     assert provider.api_base is None

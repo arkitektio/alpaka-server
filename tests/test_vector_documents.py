@@ -14,7 +14,7 @@ from vector.graphql.queries import document as document_query
 
 @sync_to_async
 def seed():
-    org = Organization.objects.get(slug="static_org")
+    org = Organization.objects.get(identifier="static_issuer#static_org")
     provider = llm_models.Provider.objects.for_write().create(name="OpenAI", organization=org, kind="openai")
     embedder = llm_models.LLMModel.objects.for_write().create(provider=provider, model_id="text-embedding-3-small", label="Embed", features=["embedding"])
     return vector_models.ChromaCollection.objects.for_write().create(name="docs", embedder=embedder, organization=org)

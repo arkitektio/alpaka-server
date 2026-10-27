@@ -1,0 +1,7 @@
+{
+  "crv": "Ed25519",
+  "x": "72OPj2mAlLghqW-4x53Y8Dwp9QMltzTz4FYMLn2o-ws",
+  "d": "vQ1JuorDiTPZ6Bdt2R-IDWsdZ3sGHvUHyJQRqryZXjA",
+  "kty": "OKP",
+  "kid": "alpaka-test-provenance"
+}

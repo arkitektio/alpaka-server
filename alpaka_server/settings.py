@@ -56,6 +56,8 @@ INSTALLED_APPS = [
     "kammer",
     "llm",
     "vector",
+    # What an assistant remembers about the person who assigned its task (``memory.owner``).
+    "memory",
     "health_check",  # required for health checks
     "health_check.db",  # stock Django health checkers
     # Collaborations of alpaka's rooms, which a guest of the organization is granted and held to.

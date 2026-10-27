@@ -1,7 +1,7 @@
 """Signal handlers wiring auto-provisioning into organization creation.
 
 alpaka's organizations are created lazily by the *authentikate* package during
-token auth (``Organization.objects.get_or_create(slug=...)``), so we cannot edit
+token auth (``Organization.objects.get_or_create(identifier=...)``), so we cannot edit
 that code path. Instead we hook it here with a ``post_save`` receiver — mirroring
 lok's ``karakter.signals.ensure_default_roles_for_org``.
 """

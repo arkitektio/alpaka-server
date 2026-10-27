@@ -1,6 +1,6 @@
 """Register an Ollama server as a provider for an organization and list its models.
 
-    python manage.py inspectollama --organization <slug> [--url http://ollama:11434] [--name ollama] [--force]
+    python manage.py inspectollama --organization <identifier> [--url http://ollama:11434] [--name ollama] [--force]
 
 Model discovery is delegated to :func:`llm.logic.arefresh_provider_models`, the
 same code path the ``refreshProvider`` mutation uses, so the command cannot
@@ -22,23 +22,23 @@ class Command(BaseCommand):
     help = "Create an Ollama provider for an organization and inspect its installed models"
 
     def add_arguments(self, parser):
-        parser.add_argument("--organization", required=True, help="Slug of the authentikate Organization that owns the provider")
+        parser.add_argument("--organization", required=True, help="The identifier (`<iss>#<org>`) of the Organization that owns the provider")
         parser.add_argument("--url", type=str, default=settings.OLLAMA_URL, help="Ollama API URL (default: from settings.OLLAMA_URL)")
         parser.add_argument("--name", type=str, default="ollama", help="Provider name (default: ollama)")
         parser.add_argument("--force", action="store_true", help="Delete and recreate the provider if it already exists")
 
     def handle(self, *args, **options):
-        slug = options["organization"]
+        identifier = options["organization"]
         ollama_url = options["url"]
         provider_name = options["name"]
 
         try:
-            organization = Organization.objects.get(slug=slug)
+            organization = Organization.objects.get(identifier=identifier)
         except Organization.DoesNotExist:
-            known = list(Organization.objects.values_list("slug", flat=True))
-            raise CommandError(f"No organization with slug {slug!r}. Known organizations: {known}")
+            known = list(Organization.objects.values_list("identifier", flat=True))
+            raise CommandError(f"No organization with identifier {identifier!r}. Known organizations: {known}")
 
-        self.stdout.write(f"Inspecting Ollama at {ollama_url} for organization {organization.slug!r}")
+        self.stdout.write(f"Inspecting Ollama at {ollama_url} for organization {organization.identifier!r}")
 
         if options["force"]:
             # A management command runs outside any request, so it has no

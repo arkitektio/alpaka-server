@@ -35,6 +35,18 @@ AUTHENTIKATE = {
         # defeat the cross-org denial tests.
         "othertest": {"sub": "9", "org": "other_org", "roles": []},
     },
+    # A rekuest that signs task tokens with tests/fixtures/provenance_key.json: what reaches
+    # a person's memories (tests/test_memory.py).
+    "provenance": {
+        "issuers": [
+            {
+                "iss": "rekuest",
+                "kind": "jwks_dict",
+                "jwks": {"keys": [{"crv": "Ed25519", "x": "72OPj2mAlLghqW-4x53Y8Dwp9QMltzTz4FYMLn2o-ws", "kty": "OKP", "kid": "alpaka-test-provenance"}]},
+            }
+        ],
+        "audience": "*",
+    },
 }
 
 

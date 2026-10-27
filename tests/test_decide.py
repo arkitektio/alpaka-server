@@ -108,8 +108,8 @@ def model_id_of(provider: dict, name: str) -> str:
 
 
 @sync_to_async
-def usage_rows(org_slug="static_org", endpoint=None):
-    rows = llm_models.UsageRecord.objects.for_organization(Organization.objects.get(slug=org_slug)).order_by("id")
+def usage_rows(org="static_org", endpoint=None):
+    rows = llm_models.UsageRecord.objects.for_organization(Organization.objects.get(identifier=f"static_issuer#{org}")).order_by("id")
     if endpoint:
         rows = rows.filter(endpoint=endpoint)
     return list(rows)
@@ -276,7 +276,7 @@ async def test_decide_without_a_model_uses_the_default_decision_model(aexecute, 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_models_stay_on_their_side_of_chat_and_decide(aexecute, typesafe):
-    org = await sync_to_async(Organization.objects.get)(slug="static_org")
+    org = await sync_to_async(Organization.objects.get)(identifier="static_issuer#static_org")
     provider = await llm_models.Provider.objects.for_write().acreate(name="OpenAI", organization=org, kind="openai", api_key="sk-test", api_base="https://api.openai.com/v1")
     chat_model = await llm_models.LLMModel.objects.for_write().acreate(provider=provider, model_id="gpt-4o-mini", label="GPT-4o mini", features=["chat"])
 
@@ -293,7 +293,7 @@ async def test_models_stay_on_their_side_of_chat_and_decide(aexecute, typesafe):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_spent_budget_blocks_decide(aexecute, typesafe, faketypesafe):
-    org = await sync_to_async(Organization.objects.get)(slug="static_org")
+    org = await sync_to_async(Organization.objects.get)(identifier="static_issuer#static_org")
     await llm_models.Budget.objects.for_write().acreate(organization=org, limit_tokens=0, hard=True)
     result = await aexecute(DECIDE, {"input": {"model": model_id_of(typesafe, "jev-1.13.0"), "state": TICKET, "questions": TRIAGE[:1]}})
     assert result.errors and "Budget" in result.errors[0].message
@@ -363,7 +363,7 @@ async def test_the_rest_surface_hides_upstream_credentials_and_relays_refusals(t
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_spent_budget_answers_402_so_the_sdk_does_not_retry(typesafe, faketypesafe):
-    org = await sync_to_async(Organization.objects.get)(slug="static_org")
+    org = await sync_to_async(Organization.objects.get)(identifier="static_issuer#static_org")
     await llm_models.Budget.objects.for_write().acreate(organization=org, limit_tokens=0, hard=True)
     async with sdk_client() as client:
         with pytest.raises(TypeSafeAPIError) as refused:

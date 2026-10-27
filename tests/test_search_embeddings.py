@@ -38,14 +38,14 @@ query ($filters: ChromaCollectionFilter, $ordering: [ChromaCollectionOrder!]) {
 
 @sync_to_async
 def _room(title: str, description: str | None = None) -> kammer_models.Room:
-    org = Organization.objects.get(slug="static_org")
+    org = Organization.objects.get(identifier="static_issuer#static_org")
     user = User.objects.get(sub="1", iss="static_issuer")
     return kammer_models.Room.objects.for_write().create(title=title, description=description, organization=org, creator=user)
 
 
 @sync_to_async
 def _collection(name: str, description: str | None = None) -> vector_models.ChromaCollection:
-    org = Organization.objects.get(slug="static_org")
+    org = Organization.objects.get(identifier="static_issuer#static_org")
     provider, _ = llm_models.Provider.objects.for_write().get_or_create(name="OpenAI", organization=org, defaults={"kind": "openai"})
     embedder, _ = llm_models.LLMModel.objects.for_write().get_or_create(provider=provider, model_id="text-embedding-3-small", defaults={"label": "Embed", "features": ["embedding"]})
     return vector_models.ChromaCollection.objects.for_write().create(name=name, description=description or "", embedder=embedder, organization=org)

@@ -49,12 +49,12 @@ def _structures(*pairs: tuple[str, int]) -> list[dict]:
 
 # Test fixtures name their organization on the row: ``all_objects``, there being no request to scope by.
 @sync_to_async
-def _rows(slug: str = "static_org") -> dict:
-    """A room with a message and a reply, an Ollama provider with a model, and a collection, all owned by ``slug``.
+def _rows(org: str = "static_org") -> dict:
+    """A room with a message and a reply, an Ollama provider with a model, and a collection, all owned by ``org``.
 
     No GraphQL here: creating an Ollama provider lists its models from a server the stack does not run.
     """
-    org, _ = Organization.objects.get_or_create(slug=slug)
+    org, _ = Organization.objects.get_or_create(identifier=f"static_issuer#{org}")
     user = User.objects.get(sub="1", iss="static_issuer")
     client = Client.objects.get(client_id="oinsoins")
 
@@ -262,12 +262,12 @@ async def test_a_sweep_for_one_organization_claims_only_its_rows(authenticated_c
         """Which of the four seeded rows a sweep for ``organization`` would claim."""
         return {key: set(stale_queryset(model, organization).filter(pk__in=[mine[key].pk, theirs[key].pk]).values_list("pk", flat=True)) for model, key in embedded}
 
-    assert await stale("elsewhere") == {"room": {theirs["room"].pk}, "collection": {theirs["collection"].pk}}
-    assert await stale("static_org") == {"room": {mine["room"].pk}, "collection": {mine["collection"].pk}}
+    assert await stale("static_issuer#elsewhere") == {"room": {theirs["room"].pk}, "collection": {theirs["collection"].pk}}
+    assert await stale("static_issuer#static_org") == {"room": {mine["room"].pk}, "collection": {mine["collection"].pk}}
     assert await stale(None) == {key: {mine[key].pk, theirs[key].pk} for _, key in embedded}
 
     # The action itself, run for one organization: its room and its collection, nobody else's.
-    assert await sync_to_async(agent.actions["reembed_stale"].function)(organization="elsewhere") == {"reembedded": 2}
+    assert await sync_to_async(agent.actions["reembed_stale"].function)(organization="static_issuer#elsewhere") == {"reembedded": 2}
     for model, key in embedded:
         healed = await model.all_objects.aget(pk=theirs[key].pk)
         assert healed.embedding is not None and healed.embedding_model == engine.model_id()

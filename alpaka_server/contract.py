@@ -161,7 +161,7 @@ contract = Contract(
     jobs={
         "ensureadmin": Job(("ensureadmin",), "Create the operator account the config names"),
         "ensurepartners": Job(("ensurepartners",), "Register the partners the config names"),
-        "inspectollama": Job(("inspectollama",), "Register an Ollama server as a provider for an organization and list its models: --organization <slug>"),
+        "inspectollama": Job(("inspectollama",), "Register an Ollama server as a provider for an organization and list its models: --organization <identifier>"),
         "restore_descriptors": Job(("restore_descriptors",), "Store the descriptors of every room, message, model, collection and provider that misses one (--all: of every row)"),
     },
     setup=("ensureadmin", "ensurepartners", "restore_descriptors"),

@@ -41,8 +41,8 @@ from tests.test_openai_compat import _mock_litellm  # noqa: E402
 
 
 @sync_to_async
-def seed(org_slug="static_org"):
-    org = Organization.objects.get(slug=org_slug)
+def seed(org="static_org"):
+    org = Organization.objects.get(identifier=f"static_issuer#{org}")
     provider = llm_models.Provider.objects.for_write().create(name="OpenAI", organization=org, kind="openai", api_key="sk-test", api_base="https://api.openai.com/v1")
     chat = llm_models.LLMModel.objects.for_write().create(provider=provider, model_id="gpt-4o-mini", label="GPT-4o mini", features=["chat"])
     embed = llm_models.LLMModel.objects.for_write().create(provider=provider, model_id="text-embedding-3-small", label="Embed", features=["embedding"])

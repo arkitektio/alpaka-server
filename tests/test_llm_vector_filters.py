@@ -12,7 +12,7 @@ from vector import models as vector_models
 
 @sync_to_async
 def seed():
-    org = Organization.objects.get(slug="static_org")
+    org = Organization.objects.get(identifier="static_issuer#static_org")
 
     openai = llm_models.Provider.objects.for_write().create(name="OpenAI", organization=org)
     ollama = llm_models.Provider.objects.for_write().create(name="Ollama", organization=org)

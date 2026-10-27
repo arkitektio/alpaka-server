@@ -36,6 +36,9 @@ from llm import types as llm_types
 from llm.graphql import mutations as llm_mutations
 from llm.graphql import queries as llm_queries
 from llm.scalars import scalar_map as llm_scalar_map
+from memory import types as memory_types
+from memory.graphql import mutations as memory_mutations
+from memory.graphql import queries as memory_queries
 from vector import types as vector_types
 from vector.graphql import mutations as vector_mutations
 from vector.graphql import queries as vector_queries
@@ -100,6 +103,11 @@ class Query:
     chroma_collections: list[vector_types.ChromaCollection] = strawberry_django.field(description="List this organization's Chroma collections")
     documents = strawberry_django.field(resolver=vector_queries.documents, description="Search a collection for the documents most similar to some text")
 
+    # Memories: only ever the assigner's of the task the request is made for (``memory.owner``)
+    memories: list[memory_types.Memory] = strawberry_django.field(description="What is remembered about the person who assigned the task this request is made for. Needs the task's provenance token")
+    memory = strawberry_django.field(resolver=memory_queries.memory, description="Get one of the assigner's memories by ID")
+    assigner = strawberry_django.field(resolver=memory_queries.whom, description="Who assigned the task this request is made for: whose memories it reaches")
+
 
 @strawberry.type(description="The root mutation type")
 class Mutation:
@@ -144,6 +152,10 @@ class Mutation:
     ensure_collection = strawberry_django.mutation(resolver=vector_mutations.ensure_collection, description="Create a collection, or update it if it already exists")
     delete_collection = strawberry_django.mutation(resolver=vector_mutations.delete_collection, description="Delete a collection and its documents")
     add_documents_to_collection = strawberry_django.mutation(resolver=vector_mutations.add_documents_to_collection, description="Embed documents and add them to a collection")
+
+    # Memories
+    remember = strawberry_django.mutation(resolver=memory_mutations.remember, description="Remember something about the person who assigned the task, replacing the memory of that name. Needs the task's provenance token")
+    forget = strawberry_django.mutation(resolver=memory_mutations.forget, description="Forget one of the assigner's memories by name; whether there was one")
 
 
 @strawberry.type(description="The root subscription type")
