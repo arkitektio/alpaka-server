@@ -15,6 +15,7 @@ from arkitekt_service.collaborations.guests import require_in_collaboration
 from django.db import transaction
 from kante.types import Info
 
+from alpaka_server.contract import EDITOR
 from kammer import models, streaming, types
 from kammer.enums import RoomEventKind
 from vector import inputs as vector_inputs
@@ -22,8 +23,8 @@ from vector import inputs as vector_inputs
 logger = logging.getLogger(__name__)
 
 #: Who may post into a room as a guest of the organization: the roles held in a collaboration that
-#: holds the room (``require_in_collaboration``). Anyone of the organization posts anywhere in it.
-POSTING_ROLES = ["admin", "editor", "bot"]
+#: holds the room (``require_in_collaboration``). A member holding it posts anywhere in the organization.
+POSTING_ROLES = [EDITOR]
 
 
 def _owned(info: Info, message_id: strawberry.ID) -> models.Message:

@@ -7,26 +7,33 @@ the same commit, and no installer has to learn of it.
 
 from __future__ import annotations
 
-from arkitekt_service.contract import JSON, Contract, Description, Descriptor, Facts, Hosts, Job, Needs, Offers, Scope, Signal, Start, Structure, blocks
+from arkitekt_service.contract import JSON, Contract, Description, Descriptor, Facts, Hosts, Job, Needs, Offers, Role, Scope, Signal, Start, Structure, blocks
 
 from alpaka_server.configuration import Settings
 
-#: What a token may be allowed to do here: defined at the coordination server when the hub enrols.
+#: What an app may do here on a user's behalf: defined at the coordination server when the hub
+#: enrols. Every root field of the schema asks for one of them (`AuthExtension(scopes=...)`).
 SCOPES = [
-    Scope(key="alpaka_infer", description="Run inference on models"),
-    Scope(key="alpaka_train", description="Train ML models"),
-    Scope(key="alpaka_manage", description="Manage model registry"),
-    Scope(key="read", description="Generic read access"),
-    Scope(key="write", description="Generic write access"),
+    Scope(key="alpaka_read", description="See your chat rooms, messages, vector collections, memories and the models your organization can use."),
+    Scope(key="alpaka_write", description="Create and delete chat rooms and vector collections, add documents to collections, and manage memories and your default models."),
+    Scope(key="alpaka_chat", description="Send messages and run models on your behalf (chat, image generation, decisions); this spends your organization's LLM budget."),
+    Scope(key="alpaka_providers", description="Configure LLM providers, pull models onto them, and set the organization's spending budgets."),
+    Scope(key="alpaka_share", description="Share rooms and messages with people outside your organization through collaborations."),
+    Scope(key="alpaka_all", description="Do everything in Alpaka on your behalf.", is_all_scope=True),
 ]
 
-#: The roles a member of an organization can hold here.
+#: What a member of an organization may do here.
 ROLES = [
-    Scope(key="admin", description="Full administrative access"),
-    Scope(key="user", description="Standard user access"),
-    Scope(key="modeler", description="Can manage ML models"),
-    Scope(key="viewer", description="Read-only access"),
+    Role(key="alpaka_admin", description="Full control of Alpaka in this organization.", is_admin_role=True),
+    Role(key="alpaka_editor", description="Create rooms and collections, chat with models, and share through collaborations.", is_default_role=True),
+    Role(key="alpaka_manager", description="Configure providers, models and budgets without being an Alpaka admin."),
 ]
+
+#: The role every write asks for, the one that configures providers and budgets, and the one
+#: holding every other.
+EDITOR = "alpaka_editor"
+MANAGER = "alpaka_manager"
+ADMIN = "alpaka_admin"
 
 #: The kind of provider that runs a model (``ollama``, ``openai``, ...): what a privacy-sensitive
 #: action selects on, requiring a provider that runs on the hub (``ollama``, ``ollaya``). One key for

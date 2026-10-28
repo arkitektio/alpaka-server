@@ -17,6 +17,9 @@ DATABASES["default"] = {
     # ALPAKA_TEST_DB_PORT at `docker compose port db 5432` to run against your own stack.
     "PORT": os.environ.get("ALPAKA_TEST_DB_PORT", "5555"),
 }
+#: What a test token is unless it says otherwise: alpaka's admin, through an app granted all of alpaka.
+ADMIN_WITH_EVERY_SCOPE = {"roles": ["alpaka_admin"], "scope": "openid alpaka_all"}
+
 AUTHENTIKATE = {
     **AUTHENTIKATE,
     # Django forces DEBUG=False under the test runner, and authentikate 3.0 refuses
@@ -26,14 +29,18 @@ AUTHENTIKATE = {
     # listed under (tests/test_sharing.py).
     "audience": "1",
     "static_tokens": {
-        "test": {"sub": "1"},
-        # A second user in the same organization, for "another agent" tests.
-        "test2": {"sub": "2"},
-        # A non-privileged user in a different organization, for cross-tenant
-        # scoping/permission tests. roles must be set explicitly: StaticToken
-        # defaults roles to ["admin"], which would let this user do anything and
-        # defeat the cross-org denial tests.
-        "othertest": {"sub": "9", "org": "other_org", "roles": []},
+        name: {**ADMIN_WITH_EVERY_SCOPE, **token}
+        for name, token in {
+            "test": {"sub": "1"},
+            # A second user in the same organization, for "another agent" tests.
+            "test2": {"sub": "2"},
+            # A non-privileged user in a different organization, for cross-tenant
+            # scoping/permission tests: an editor passes the write gate but is not
+            # alpaka's admin, so what refuses its cross-org writes is the scoping.
+            "othertest": {"sub": "9", "org": "other_org", "roles": ["alpaka_editor"]},
+            # An app granted only what it reads, for the scope tests (tests/test_scopes.py).
+            "readertest": {"sub": "1", "scope": "openid alpaka_read"},
+        }.items()
     },
     # A rekuest that signs task tokens with tests/fixtures/provenance_key.json: what reaches
     # a person's memories (tests/test_memory.py).

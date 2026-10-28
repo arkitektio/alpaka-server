@@ -44,7 +44,7 @@ def guest(db, authenticated_context, settings):
         granted = {str(collaboration.pk): roles for collaboration, roles in collaborations.items()}
         settings.AUTHENTIKATE = {
             **settings.AUTHENTIKATE,
-            "static_tokens": {**settings.AUTHENTIKATE["static_tokens"], "guest": {"sub": "20", "roles": [], "collabs": {"1": granted}}},
+            "static_tokens": {**settings.AUTHENTIKATE["static_tokens"], "guest": {"sub": "20", "roles": [], "collabs": {"1": granted}, "scope": "openid alpaka_all"}},
         }
         authentikate_settings.cached_settings = None
         return _context("guest")
@@ -170,7 +170,7 @@ async def test_no_provider_model_or_collection_is_shown_to_a_guest_or_put_in_a_c
 
     provider = await seed()
     collaboration = await _collaboration(room)
-    ctx = guest({collaboration: ["editor"]})
+    ctx = guest({collaboration: ["alpaka_editor"]})
 
     for field in ("providers", "llmModels", "chromaCollections"):
         listed = await _run(ctx, f"{{ {field} {{ id }} }}")
@@ -207,7 +207,7 @@ async def test_a_full_member_shares_a_room_over_graphql(authenticated_context, g
 async def test_an_editor_in_the_collaboration_posts_there_and_only_there(authenticated_context, guest):
     room, _ = await _room("Room", "hi")
     other, _ = await _room("Other", "private")
-    ctx = guest({await _collaboration(room): ["editor"]})
+    ctx = guest({await _collaboration(room): ["alpaka_editor"]})
 
     posted = await _run(ctx, SEND, input={"room": str(room.id), "agentId": "guest", "text": "hello from outside"})
     assert not posted.errors, posted.errors
@@ -224,9 +224,9 @@ async def test_an_editor_in_the_collaboration_posts_there_and_only_there(authent
 async def test_a_viewer_posts_nothing_and_no_guest_does_anything_else(authenticated_context, guest):
     room, _ = await _room("Room", "hi")
     collaboration = await _collaboration(room)
-    editor = guest({collaboration: ["editor"]})
+    editor = guest({collaboration: ["alpaka_editor"]})
 
-    _refused(await _run(guest({collaboration: []}), SEND, input={"room": str(room.id), "agentId": "guest", "text": "hi"}), "SHARE_INSUFFICIENT")
+    _refused(await _run(guest({collaboration: []}), SEND, input={"room": str(room.id), "agentId": "guest", "text": "hi"}), "INSUFFICIENT_ROLE")
     _refused(await _run(editor, "mutation ($input: DeleteRoomInput!) { deleteRoom(input: $input) }", input={"id": str(room.id)}), "SCOPED_READ_ONLY")
     _refused(await _run(editor, "mutation ($input: StartMessageInput!) { startMessage(input: $input) { id } }", input={"room": str(room.id), "agentId": "guest"}), "SCOPED_READ_ONLY")
     _refused(await _run(editor, 'mutation { createCollaboration(input: {name: "Mine"}) { id } }'), "SCOPED_READ_ONLY")
@@ -237,7 +237,7 @@ async def test_a_viewer_posts_nothing_and_no_guest_does_anything_else(authentica
 @pytest.mark.asyncio
 async def test_a_guest_calls_no_model_and_streams_nothing_outside_graphql(authenticated_context, guest):
     room, _ = await _room("Room")
-    guest({await _collaboration(room): ["editor"]})
+    guest({await _collaboration(room): ["alpaka_editor"]})
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=get_asgi_application()), base_url="http://testserver") as http:
         listed = await http.get("/llm/v1/models", headers={"Authorization": "Bearer guest"})
@@ -260,4 +260,4 @@ def test_the_schema_says_what_each_type_is_and_where_a_guest_may_post():
     sdl = str(schema)
     assert '@identified(by: "@alpaka/room")' in _type_line(sdl, "Room")
     send = next(line.strip() for line in sdl.splitlines() if line.strip().startswith("send("))
-    assert send.endswith("@auth(allow_scoped: true)"), send
+    assert send.endswith('@auth(required_scopes: ["alpaka_chat"], any_role_of: ["alpaka_editor"], allow_scoped: true)'), send
