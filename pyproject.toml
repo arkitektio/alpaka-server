@@ -21,7 +21,7 @@ dependencies = [
     "jsonpatch~=1.33",
     "django-probes>=1.7.0,<2",
     "rich>=14.0.0",
-    "koherent>=4.0",
+    "koherent>=4.2.0",
     "django-redis>=5.4.0",
     "boto3>=1.38.9",
     "aiohttp>=3.11.18",
@@ -35,7 +35,7 @@ dependencies = [
     "whitenoise>=6.6",
     "pgvector>=0.5",
     "model2vec>=0.9",
-    "arkitekt-service>=9.0.0",
+    "arkitekt-service>=9.2.0",
 ]
 
 [dependency-groups]
