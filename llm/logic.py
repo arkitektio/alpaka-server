@@ -2,7 +2,10 @@ import logging
 
 import aiohttp
 import litellm
-from .models import Provider, ProviderPartner, LLMModel
+from asgiref.sync import sync_to_async
+from litellm.types.utils import LlmProviders
+from litellm.utils import ProviderConfigManager
+from .models import LITELLM_PREFIX_BY_KIND, Provider, ProviderPartner, LLMModel
 from .decision import backend_for, is_decision_kind
 from .enums import FeatureType, ProviderKind
 from django.conf import settings
@@ -166,27 +169,81 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
 
     else:
         try:
-            # For all other providers, use LiteLLM's list_models
-            models = litellm.list_models(api_key=provider.api_key, api_base=provider.api_base)
-            for model in models.get("data", []):
-                model_id = model["id"]
-                features = detect_features(model_id)
-                input_modalities, output_modalities = detect_modalities(model_id, model)
-                obj, _ = await LLMModel.objects.for_write().aupdate_or_create(
-                    provider=provider,
-                    model_id=model_id,
-                    defaults={
-                        "label": f"{provider.name} - {model_id}",
-                        "features": features,
-                        "input_modalities": input_modalities,
-                        "output_modalities": output_modalities,
-                    },
-                )
-                new_models.append(obj)
+            if provider_kind == ProviderKind.ANTHROPIC.value:
+                model_ids = await alist_anthropic_models(provider)
+            else:
+                model_ids = await sync_to_async(list_litellm_models)(provider)
         except Exception as e:
-            raise Exception(f"Failed to list models for {provider_kind} provider: {e}")
+            raise Exception(f"Failed to list models for {provider_kind} provider: {e}") from e
+
+        for model_id in model_ids:
+            features = detect_features(model_id)
+            input_modalities, output_modalities = detect_modalities(model_id)
+            obj, _ = await LLMModel.objects.for_write().aupdate_or_create(
+                provider=provider,
+                model_id=model_id,
+                defaults={
+                    "label": f"{provider.name} - {model_id}",
+                    "features": features,
+                    "input_modalities": input_modalities,
+                    "output_modalities": output_modalities,
+                },
+            )
+            new_models.append(obj)
 
     return new_models
+
+
+def strip_routing_prefix(model_id: str, prefix: str) -> str:
+    """Return ``model_id`` without litellm's ``<prefix>/`` routing prefix.
+
+    ``LLMModel.llm_string`` adds the prefix itself, so a stored id that kept it
+    would route to ``anthropic/anthropic/...``. litellm's listings and its
+    static catalogue are inconsistent about including it.
+    """
+    return model_id.removeprefix(f"{prefix}/")
+
+
+async def alist_anthropic_models(provider: Provider) -> list[str]:
+    """List every model an Anthropic key can use, following pagination.
+
+    litellm's own Anthropic listing reads one page of ``/v1/models`` (20 by
+    default) and drops the rest, so it is listed here directly.
+    """
+    base = (provider.api_base or "https://api.anthropic.com").rstrip("/")
+    headers = {"x-api-key": provider.api_key or "", "anthropic-version": "2023-06-01"}
+    timeout = aiohttp.ClientTimeout(total=LIST_MODELS_TIMEOUT_SECONDS)
+    model_ids: list[str] = []
+    params = {"limit": "1000"}
+    async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+        while True:
+            async with session.get(f"{base}/v1/models", params=params) as res:
+                if res.status != 200:
+                    raise Exception(f"Anthropic list models failed: {res.status} {await res.text()}")
+                page = await res.json()
+            model_ids.extend(model["id"] for model in page.get("data", []))
+            if not page.get("has_more") or not page.get("last_id"):
+                return model_ids
+            params = {"limit": "1000", "after_id": page["last_id"]}
+
+
+def list_litellm_models(provider: Provider) -> list[str]:
+    """List a provider's models through litellm's per-provider model info.
+
+    Errors from the provider (a bad key, an unreachable endpoint) propagate;
+    litellm's catalogue is used only for providers it cannot list at all.
+    """
+    prefix = LITELLM_PREFIX_BY_KIND.get(provider.kind)
+    if prefix is None:
+        raise Exception(f"'{provider.kind}' providers cannot list their models")
+    model_info = ProviderConfigManager.get_provider_model_info(model=None, provider=LlmProviders(prefix))
+    try:
+        if model_info is None:
+            raise NotImplementedError
+        listed = model_info.get_models(api_key=provider.api_key, api_base=provider.api_base)
+    except NotImplementedError:
+        listed = sorted(litellm.models_by_provider.get(prefix, []))
+    return [strip_routing_prefix(model_id, prefix) for model_id in listed]
 
 
 async def arefresh_decision_models(provider: Provider) -> list[LLMModel]:

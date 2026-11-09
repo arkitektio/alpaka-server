@@ -43,7 +43,7 @@ def wrap_llm_errors(model):
     provider = model.provider
     ctx = (
         f"model '{model.llm_string}' (id={model.model_id}) via provider "
-        f"'{provider.name}' [{provider.kind}] at {provider.api_base}"
+        f"'{provider.name}' [{provider.kind}] at {provider.api_base or 'its default endpoint'}"
     )
     try:
         yield

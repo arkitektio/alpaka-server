@@ -8,24 +8,52 @@ from llm.decision import DECISION_BACKENDS
 from llm.redaction import REDACTED
 
 #: Providers whose endpoint is fixed and need not be supplied by the caller.
-#: Anything absent here must be given an explicit ``api_base``. Decision
-#: backends own their default, because auto-configured providers reach them
-#: without passing through this mutation.
+#: Decision backends own their default, because auto-configured providers reach
+#: them without passing through this mutation.
 DEFAULT_API_BASE_MAP = {
     models.ProviderKind.OPENROUTER.value: "https://openrouter.ai/api/v1",
     models.ProviderKind.OLLAMA.value: "http://ollama:11434",
     **{kind: backend.default_api_base for kind, backend in DECISION_BACKENDS.items()},
 }
 
+#: Hosted APIs with one public endpoint that litellm already knows. They are
+#: stored without an ``api_base`` rather than with a guessed one: litellm
+#: derives a different URL per call (Anthropic's model list and its messages
+#: endpoint are not the same base), so only litellm's own default is right.
+#: Everything absent from both tables -- Azure, Bedrock, Vertex AI, custom
+#: endpoints -- has no shared default and must be given an ``api_base``.
+HOSTED_KINDS = frozenset(
+    kind.value
+    for kind in (
+        models.ProviderKind.OPENAI,
+        models.ProviderKind.ANTHROPIC,
+        models.ProviderKind.GOOGLE,
+        models.ProviderKind.COHERE,
+        models.ProviderKind.MISTRAL,
+        models.ProviderKind.HUGGINGFACE,
+        models.ProviderKind.REPLICATE,
+        models.ProviderKind.TOGETHER_AI,
+        models.ProviderKind.FIREWORKS_AI,
+        models.ProviderKind.DEEPINFRA,
+        models.ProviderKind.PERPLEXITY,
+        models.ProviderKind.GROQ,
+    )
+)
+
 
 class ApiBaseRequired(Exception):
     """Raised when a provider kind has no default endpoint and none was given."""
 
 
-def _resolve_api_base(kind: str, api_base: str | None) -> str:
-    """Return the endpoint to use, or explain that one has to be supplied."""
+def _resolve_api_base(kind: str, api_base: str | None) -> str | None:
+    """Return the endpoint to store, ``None`` meaning litellm's own default.
+
+    Raises when the kind has no default and none was supplied.
+    """
     if api_base:
         return api_base
+    if kind in HOSTED_KINDS:
+        return None
     default = DEFAULT_API_BASE_MAP.get(kind)
     if default is None:
         raise ApiBaseRequired(f"Provider kind '{kind}' has no default endpoint. Supply apiBase explicitly.")
