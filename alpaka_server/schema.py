@@ -15,7 +15,7 @@ import strawberry
 from alpaka_server.logs import QuietErrorsSchema
 import strawberry_django
 from arkitekt_service.collaborations import graphql as collaboration_types
-from arkitekt_service.graphql import CollaborationGate, annotate_schema
+from arkitekt_service.graphql import CollaborationGate, TelemetryExtension, annotate_schema
 from authentikate.strawberry import AuthExtension, AuthSubscribeExtension
 from authentikate.strawberry.extension import AuthentikateExtension
 from django.db.models import Model
@@ -187,7 +187,7 @@ schema = Schema(
     mutation=Mutation,
     subscription=Subscription,
     # A guest of the organization is handed only what is in their collaborations (CollaborationGate).
-    extensions=[DjangoOptimizerExtension, AuthentikateExtension, CollaborationGate, KoherentExtension],
+    extensions=[TelemetryExtension, DjangoOptimizerExtension, AuthentikateExtension, CollaborationGate, KoherentExtension],
     types=[llm_types.Provider, llm_types.LLMModel, vector_types.ChromaCollection],
     config=StrawberryConfig(scalar_map={**kammer_scalar_map, **llm_scalar_map}),
 )
