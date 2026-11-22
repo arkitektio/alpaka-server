@@ -14,6 +14,7 @@ from strawberry import scalars
 from .type_gen import create_stats_type
 import kante
 from strawberry_django.pagination import OffsetPaginationInput
+from django.db.models import Count
 
 
 def build_prescoper(field="organization"):
@@ -87,6 +88,18 @@ class Room:
         if annotated is not None:
             return annotated
         return models.Room.all_objects.filter(pk=self.pk).annotate(_last_activity=models.room_last_activity()).values_list("_last_activity", flat=True).get()
+
+
+    @strawberry_django.field(
+        annotate={"_message_count": Count("message", distinct=True)},
+        description="How many messages the room holds",
+    )
+    def message_count(self) -> int:
+        """The annotated count, or one query for it when the optimizer did not annotate this row."""
+        annotated = getattr(self, "_message_count", None)
+        if annotated is not None:
+            return annotated
+        return models.Room.all_objects.filter(pk=self.pk).annotate(_message_count=Count("message", distinct=True)).values_list("_message_count", flat=True).get()
 
 
 RoomStats, RoomStatsResolver = create_stats_type(

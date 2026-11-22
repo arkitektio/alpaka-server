@@ -2,6 +2,7 @@ import datetime
 import decimal
 
 import strawberry
+from django.db.models import Count
 from typing import Annotated, Optional, List
 from strawberry.types import Info
 from authentikate.strawberry.types import Client, User
@@ -141,6 +142,17 @@ class Provider:
         description="The kind of the provider",
         default=enums.ProviderKind.UNKNOWN,
     )
+
+    @strawberry_django.field(
+        annotate={"_model_count": Count("models", distinct=True)},
+        description="How many models the provider offers",
+    )
+    def model_count(self) -> int:
+        """The annotated count, or one query for it when the optimizer did not annotate this row."""
+        annotated = getattr(self, "_model_count", None)
+        if annotated is not None:
+            return annotated
+        return models.Provider.all_objects.filter(pk=self.pk).annotate(_model_count=Count("models", distinct=True)).values_list("_model_count", flat=True).get()
 
     @strawberry_django.field(description="Whether an API key is configured for this provider. The key itself is never exposed.")
     def has_api_key(self) -> bool:

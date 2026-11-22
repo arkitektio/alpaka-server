@@ -278,3 +278,21 @@ async def test_rooms_order_by_their_latest_message(aexecute):
 
     oldest_first = await aexecute("query { rooms(ordering: [{ lastMessageAt: ASC }]) { title } }")
     assert [row["title"] for row in oldest_first.data["rooms"]] == ["Cooking room", "Weather room"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_rooms_count_their_messages(aexecute):
+    """``messageCount`` counts a room's messages in the list and on a single room, so a card need not fetch them."""
+    data = await seed()
+
+    listed = await aexecute("query { rooms(ordering: [{ title: ASC }]) { title messageCount } }")
+    assert listed.data, listed.errors
+    assert listed.data["rooms"] == [
+        {"title": "Cooking room", "messageCount": 0},
+        {"title": "Weather room", "messageCount": 3},
+    ]
+
+    single = await aexecute("query ($id: ID!) { room(id: $id) { messageCount } }", {"id": str(data["room"].id)})
+    assert single.data, single.errors
+    assert single.data["room"]["messageCount"] == 3

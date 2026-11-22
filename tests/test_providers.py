@@ -105,3 +105,22 @@ async def test_a_rejected_anthropic_key_fails_creation(aexecute, anthropic_url: 
     result = await aexecute(CREATE_PROVIDER, {"input": {"kind": "ANTHROPIC", "apiKey": "wrong", "apiBase": anthropic_url}})
     assert result.errors is not None
     assert "401" in result.errors[0].message
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_providers_count_their_models(aexecute, anthropic_url: str) -> None:
+    """``modelCount`` counts a provider's models, listed or on its own, and a page of them reads through `models`."""
+    created = await aexecute(CREATE_PROVIDER, {"input": {"kind": "ANTHROPIC", "apiKey": ANTHROPIC_KEY, "apiBase": anthropic_url}})
+    assert created.errors is None, created.errors
+    provider = created.data["createProvider"]
+
+    listed = await aexecute("query { providers { id modelCount models(pagination: { limit: 1 }) { id } } }")
+    assert listed.errors is None, listed.errors
+    row = next(p for p in listed.data["providers"] if p["id"] == provider["id"])
+    assert row["modelCount"] == len(ANTHROPIC_MODELS)
+    assert len(row["models"]) == 1
+
+    single = await aexecute("query ($id: ID!) { provider(id: $id) { modelCount } }", {"id": provider["id"]})
+    assert single.errors is None, single.errors
+    assert single.data["provider"]["modelCount"] == len(ANTHROPIC_MODELS)
