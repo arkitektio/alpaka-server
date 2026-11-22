@@ -6,13 +6,13 @@ No database required — this only imports and stringifies the schema.
 from alpaka_server.schema import schema
 
 
-def test_print_schema():
+def test_print_schema() -> None:
     sdl = str(schema)
     print(sdl)  # visible with `pytest -s`
     assert sdl.strip(), "Schema SDL should not be empty"
 
 
-def test_embedding_columns_stay_out_of_the_schema():
+def test_embedding_columns_stay_out_of_the_schema() -> None:
     """The vector columns are storage, not API: no type or input may expose them.
 
     The word "embedding" itself is legitimately in this schema (the LLM feature and usage

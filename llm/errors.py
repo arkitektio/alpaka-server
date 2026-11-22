@@ -7,8 +7,13 @@ attached so callers (and the GraphQL response) get an actionable message.
 """
 
 import contextlib
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import litellm
+
+if TYPE_CHECKING:
+    from llm.models import LLMModel
 
 
 class WrongModelKind(Exception):
@@ -19,7 +24,7 @@ class WrongModelKind(Exception):
     """
 
 
-def ensure_generative(model) -> None:
+def ensure_generative(model: "LLMModel") -> None:
     """Reject a decision model on a chat, completion, image or embedding path."""
     if model.is_decision_model:
         raise WrongModelKind(
@@ -27,7 +32,7 @@ def ensure_generative(model) -> None:
         )
 
 
-def ensure_decision(model) -> None:
+def ensure_decision(model: "LLMModel") -> None:
     """Reject a generative model on the decide paths."""
     if not model.is_decision_model:
         raise WrongModelKind(
@@ -36,7 +41,7 @@ def ensure_decision(model) -> None:
 
 
 @contextlib.contextmanager
-def wrap_llm_errors(model):
+def wrap_llm_errors(model: "LLMModel") -> Iterator[None]:
     """Run an litellm call, re-raising failures with model/provider context.
 
     Wraps a block that performs a litellm request for ``model`` (an

@@ -3,6 +3,7 @@ import logging
 import aiohttp
 import litellm
 from asgiref.sync import sync_to_async
+from authentikate.models import Organization
 from django.conf import settings
 from litellm.types.utils import LlmProviders
 from litellm.utils import ProviderConfigManager
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 LIST_MODELS_TIMEOUT_SECONDS = 60
 
 
-def auto_configure_provider_partners(organization) -> list[str]:
+def auto_configure_provider_partners(organization: Organization) -> list[str]:
     """Provision a :class:`Provider` for ``organization`` from every auto-config partner.
 
     Mirrors lok's ``auto_configure_kommunity_partners``. Runs on organization

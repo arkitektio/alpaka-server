@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from django.db import transaction
 from django.db.models import F, TextField, Value
 from django.db.models.functions import Concat
+from kante.context import Client, Organization, User
 
 from kammer import models
 from kammer.channels import MessageSignal, message_channel, room_group
@@ -32,7 +33,12 @@ def attach_structures(structures: Iterable) -> list[models.Structure]:
 
 
 def room_and_agent(
-    *, organization, user, client, room_id, agent_name: str
+    *,
+    organization: Organization,
+    user: User,
+    client: Client,
+    room_id: str | int,
+    agent_name: str,
 ) -> tuple[models.Room, models.Agent]:
     """The scoped room, and the user+client's agent in it (created on first use)."""
     # Scoped first, so a caller cannot post into another organization's room.
@@ -44,7 +50,7 @@ def room_and_agent(
 
 
 def parent_message(
-    *, organization, room: models.Room, parent_id
+    *, organization: Organization, room: models.Room, parent_id: str | int | None
 ) -> models.Message | None:
     """The message being replied to, which must live in the same room."""
     if parent_id is None:
@@ -56,12 +62,12 @@ def parent_message(
 
 def open_message(
     *,
-    organization,
-    user,
-    client,
-    room_id,
+    organization: Organization,
+    user: User,
+    client: Client,
+    room_id: str | int,
     agent_name: str,
-    parent_id=None,
+    parent_id: str | int | None = None,
     text: str = "",
 ) -> models.Message:
     """Create a message with ``is_streaming=True``. The post_save receiver announces it."""
@@ -84,7 +90,7 @@ def open_message(
 
 
 def owned_streaming_message(
-    *, organization, user, client, message_id
+    *, organization: Organization, user: User, client: Client, message_id: str | int
 ) -> models.Message:
     """The message, provided it is in ``organization``, still streaming, and started by ``user``+``client``.
 

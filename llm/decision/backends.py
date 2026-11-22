@@ -11,9 +11,10 @@ registered in :data:`DECISION_BACKENDS`; callers only ever go through
 import asyncio
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Protocol
 
 import aiohttp
 
@@ -51,7 +52,7 @@ class DecisionError(Exception):
         *,
         status: int | None = None,
         code: str | None = None,
-        body: Any = None,
+        body: object = None,
     ) -> None:
         super().__init__(message)
         self.status = status
@@ -75,7 +76,7 @@ class DecisionBackend(Protocol):
     label: str
     default_api_base: str
 
-    async def decide(self, model: LLMModel, state: Any, questions: dict) -> dict:
+    async def decide(self, model: LLMModel, state: object, questions: dict) -> dict:
         """Answer ``questions`` about ``state``; returns the systemone response body."""
         ...
 
@@ -88,7 +89,7 @@ class DecisionBackend(Protocol):
         ...
 
 
-def _retry_delay(attempt: int, headers: Any) -> float:
+def _retry_delay(attempt: int, headers: Mapping[str, str] | None) -> float:
     """Seconds to wait before the next attempt, honouring a numeric Retry-After."""
     retry_after = headers.get("Retry-After") if headers is not None else None
     if retry_after:
@@ -198,7 +199,7 @@ class SystemOneBackend:
             body=body,
         )
 
-    async def decide(self, model: LLMModel, state: Any, questions: dict) -> dict:
+    async def decide(self, model: LLMModel, state: object, questions: dict) -> dict:
         return await self._request(
             model.provider,
             "POST",

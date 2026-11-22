@@ -110,7 +110,7 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
 
     # --- frames -----------------------------------------------------------
 
-    async def receive_json(self, content: Any, **kwargs: Any) -> None:
+    async def receive_json(self, content: object, **kwargs: Any) -> None:
         if not isinstance(content, dict):
             # A JSON frame that is not an object at all; every handler below (and
             # every error path) assumes a mapping.
@@ -309,7 +309,7 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
             {"type": "finished", "message": message.id, "text": message.text}
         )
 
-    async def _error(self, detail: str, *, message: Any = None) -> None:
+    async def _error(self, detail: str, *, message: object = None) -> None:
         payload: dict[str, Any] = {"type": "error", "detail": detail}
         if message is not None:
             payload["message"] = message

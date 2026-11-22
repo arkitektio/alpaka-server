@@ -189,7 +189,7 @@ class Settings(ServiceSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def _accept_providers_shorthand(cls, data: Any) -> Any:
+    def _accept_providers_shorthand(cls, data: object) -> object:
         """Fold a top-level ``providers:`` block into ``provider_partners``.
 
         Deployments write the shorthand::

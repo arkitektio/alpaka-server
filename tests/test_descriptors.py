@@ -8,10 +8,13 @@ kind) is restored by whoever writes it. And the agent's one action does one orga
 of the work.
 """
 
+from typing import Any
+
 import pytest
 from asgiref.sync import sync_to_async
 from authentikate.models import Client, Organization, User
 from django.core.management import call_command
+from kante.context import HttpContext
 
 from alpaka_server.hook_agent import agent
 from alpaka_server.service import service
@@ -19,8 +22,12 @@ from embeddings import engine
 from embeddings.healer import stale_queryset
 from kammer import models as kammer_models
 from llm import models as llm_models
+from tests.support import AExecute
 from tests.test_decide import faketypesafe, typesafe, typesafe_url  # noqa: F401  the fixtures
-from tests.test_signals import intake  # noqa: F401  the fixture
+from tests.test_signals import (
+    Intake,
+    intake,  # noqa: F401  the fixture
+)
 from vector import models as vector_models
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
@@ -106,7 +113,7 @@ def _rows(org: str = "static_org") -> dict:
     }
 
 
-async def _converse(aexecute) -> dict[str, str]:
+async def _converse(aexecute: AExecute) -> dict[str, str]:
     """A room about two images and a dataset, a message posted about two datasets and a reply to it, by two agents: as the mutations write them."""
     created = await aexecute(
         CREATE_ROOM,
@@ -120,6 +127,7 @@ async def _converse(aexecute) -> dict[str, str]:
         },
     )
     assert not created.errors, created.errors
+    assert created.data is not None
     room = created.data["createRoom"]["id"]
     sent = await aexecute(
         SEND,
@@ -135,6 +143,7 @@ async def _converse(aexecute) -> dict[str, str]:
         },
     )
     assert not sent.errors, sent.errors
+    assert sent.data is not None
     message = sent.data["send"]["id"]
     replied = await aexecute(
         SEND,
@@ -148,12 +157,13 @@ async def _converse(aexecute) -> dict[str, str]:
         },
     )
     assert not replied.errors, replied.errors
+    assert replied.data is not None
     return {"room": room, "message": message, "reply": replied.data["send"]["id"]}
 
 
 async def test_an_object_answers_the_descriptors_its_structure_declares(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     rows = await _rows()
     conversation = await _converse(aexecute)
 
@@ -166,15 +176,18 @@ async def test_an_object_answers_the_descriptors_its_structure_declares(
     )
     assert not result.errors, result.errors
 
+    assert result.data is not None
     assert result.data["room"]["descriptors"] == {
         "@alpaka/contextual_structures": ["@mikro/arraydataset", "@mikro/image"],
         "@alpaka/n_agents": 2,
     }
+    assert result.data is not None
     assert result.data["message"]["descriptors"] == {
         "@alpaka/from_agent": True,
         "@alpaka/is_reply": False,
         "@alpaka/attached_structures": ["@mikro/arraydataset"],
     }
+    assert result.data is not None
     assert result.data["reply"]["descriptors"] == {
         "@alpaka/from_agent": True,
         "@alpaka/is_reply": True,
@@ -186,12 +199,16 @@ async def test_an_object_answers_the_descriptors_its_structure_declares(
         "@alpaka/output_modalities": ["text"],
         "@alpaka/provider_kind": "ollama",
     }
+    assert result.data is not None
     assert result.data["llmModel"]["descriptors"] == described
+    assert result.data is not None
     assert {"id": str(rows["model"].pk), "descriptors": described} in result.data[
         "llmModels"
     ]
     # A provider (it holds an API key) says what kind it is, and nothing else.
+    assert result.data is not None
     assert result.data["provider"]["descriptors"] == {"@alpaka/provider_kind": "ollama"}
+    assert result.data is not None
     assert result.data["chromaCollection"]["descriptors"] == {
         "@alpaka/embedder": "nomic-embed-text"
     }
@@ -207,14 +224,15 @@ async def test_an_object_answers_the_descriptors_its_structure_declares(
         ("provider", "@alpaka/provider"),
         ("chromaCollection", "@alpaka/chromacollection"),
     ):
+        assert result.data is not None
         assert set(result.data[field]["descriptors"]) == set(declared[identifier])
 
 
 async def test_the_field_answers_what_the_signal_carried(
-    intake,  # noqa: F811
-    aexecute,
-    authenticated_context,
-):
+    intake: Intake,  # noqa: F811
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+) -> None:
     rows = await _rows()
     conversation = await _converse(aexecute)
 
@@ -224,6 +242,7 @@ async def test_the_field_answers_what_the_signal_carried(
         {"model": str(rows["model"].pk), "reply": str(rows["reply"].pk)},
     )
     assert not result.errors, result.errors
+    assert result.data is not None
     assert (
         result.data["llmModel"]["descriptors"]
         == model_signal["json"]["descriptors"]
@@ -233,6 +252,7 @@ async def test_the_field_answers_what_the_signal_carried(
         received["json"]["object"]: received["json"]
         for received in await sync_to_async(intake.of)("@alpaka/message", count=4)
     }
+    assert result.data is not None
     assert (
         result.data["message"]["descriptors"]
         == messages[str(rows["reply"].pk)]["descriptors"]
@@ -251,10 +271,10 @@ async def test_the_field_answers_what_the_signal_carried(
 
 
 async def test_a_sent_message_is_announced_once_with_what_it_was_posted_about(
-    intake,  # noqa: F811
-    aexecute,
-    authenticated_context,
-):
+    intake: Intake,  # noqa: F811
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+) -> None:
     conversation = await _converse(aexecute)
 
     # Two messages sent, two signals: the structures attached after the insert are no second one.
@@ -275,12 +295,13 @@ async def test_a_sent_message_is_announced_once_with_what_it_was_posted_about(
 
 
 async def test_a_streamed_message_is_announced_once_finished_with_what_it_was_posted_about(
-    intake,  # noqa: F811
-    aexecute,
-    authenticated_context,
-):
+    intake: Intake,  # noqa: F811
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+) -> None:
     created = await aexecute(CREATE_ROOM, {"input": {"title": "Stream"}})
     assert not created.errors, created.errors
+    assert created.data is not None
     started = await aexecute(
         START,
         {
@@ -292,6 +313,7 @@ async def test_a_streamed_message_is_announced_once_finished_with_what_it_was_po
         },
     )
     assert not started.errors, started.errors
+    assert started.data is not None
     message = started.data["startMessage"]["id"]
     finished = await aexecute(
         FINISH,
@@ -334,7 +356,7 @@ REQUIRED = """
 
 
 async def _required(
-    aexecute,
+    aexecute: AExecute,
     *,
     rooms: list | None = None,
     messages: list | None = None,
@@ -355,10 +377,10 @@ async def _required(
 
 
 async def test_a_port_requires_is_answered_from_the_stored_descriptors(
-    aexecute,
-    authenticated_context,
-    typesafe,  # noqa: F811
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    typesafe: dict[str, Any],  # noqa: F811
+) -> None:
     rows = await _rows()
     conversation = await _converse(aexecute)
     local_model, local_provider = str(rows["model"].pk), str(rows["provider"].pk)
@@ -454,7 +476,9 @@ async def test_a_port_requires_is_answered_from_the_stored_descriptors(
     assert result.errors and "not a descriptor here" in result.errors[0].message
 
 
-async def test_what_a_save_does_not_see_is_restored(aexecute, authenticated_context):
+async def test_what_a_save_does_not_see_is_restored(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     rows = await _rows()
     room, provider = rows["room"], rows["provider"]
 
@@ -520,7 +544,9 @@ async def test_what_a_save_does_not_see_is_restored(aexecute, authenticated_cont
     await room.adelete()
 
 
-async def test_the_setup_job_repairs_what_is_owed(authenticated_context):
+async def test_the_setup_job_repairs_what_is_owed(
+    authenticated_context: HttpContext,
+) -> None:
     rows = await _rows()
     await llm_models.LLMModel.all_objects.filter(pk=rows["model"].pk).aupdate(
         stored_descriptors={}
@@ -539,7 +565,9 @@ async def test_the_setup_job_repairs_what_is_owed(authenticated_context):
     ).stored_descriptors == {"@alpaka/contextual_structures": [], "@alpaka/n_agents": 1}
 
 
-async def test_a_sweep_for_one_organization_claims_only_its_rows(authenticated_context):
+async def test_a_sweep_for_one_organization_claims_only_its_rows(
+    authenticated_context: HttpContext,
+) -> None:
     """Every organization has the agent and its own schedule: a run must not do another's work."""
     mine, theirs = await _rows(), await _rows("elsewhere")
     embedded = (

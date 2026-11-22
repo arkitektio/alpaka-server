@@ -8,13 +8,15 @@ Needs Django configured (``DJANGO_SETTINGS_MODULE``) but no database; run with
 
 import json
 import types
+from typing import Any
 
 import litellm
+from django.http import HttpResponse
 
 from llm.views import litellm_error_response
 
 
-def make_model():
+def make_model() -> types.SimpleNamespace:
     provider = types.SimpleNamespace(
         name="openrouter",
         kind="OPENROUTER",
@@ -27,11 +29,11 @@ def make_model():
     )
 
 
-def body(response):
+def body(response: HttpResponse) -> dict[str, Any]:
     return json.loads(response.content)["error"]
 
 
-def test_api_error_surfaces_upstream_status_and_provider():
+def test_api_error_surfaces_upstream_status_and_provider() -> None:
     """The reported 403 case: status is propagated and the message names the
     upstream provider and the model instead of a blanket 500."""
     e = litellm.exceptions.APIError(
@@ -50,7 +52,7 @@ def test_api_error_surfaces_upstream_status_and_provider():
     assert "Sakana AI" in err["message"]  # buried upstream detail preserved
 
 
-def test_api_error_without_usable_status_falls_back_to_502():
+def test_api_error_without_usable_status_falls_back_to_502() -> None:
     """A non-HTTP / missing status_code becomes a 502 rather than echoing a
     nonsensical HTTP status."""
     e = litellm.exceptions.APIError(
@@ -63,7 +65,7 @@ def test_api_error_without_usable_status_falls_back_to_502():
     assert r.status_code == 502
 
 
-def test_authentication_error_maps_to_401():
+def test_authentication_error_maps_to_401() -> None:
     e = litellm.exceptions.AuthenticationError(
         message="bad key", llm_provider="openrouter", model="x"
     )
@@ -73,7 +75,7 @@ def test_authentication_error_maps_to_401():
     assert "Provider authentication failed" in body(r)["message"]
 
 
-def test_rate_limit_error_maps_to_429():
+def test_rate_limit_error_maps_to_429() -> None:
     e = litellm.exceptions.RateLimitError(
         message="slow down", llm_provider="openrouter", model="x"
     )
@@ -82,7 +84,7 @@ def test_rate_limit_error_maps_to_429():
     assert body(r)["type"] == "rate_limit_error"
 
 
-def test_invalid_request_error_maps_to_400():
+def test_invalid_request_error_maps_to_400() -> None:
     e = litellm.exceptions.InvalidRequestError(
         message="bad params", model="x", llm_provider="openrouter"
     )
@@ -91,7 +93,7 @@ def test_invalid_request_error_maps_to_400():
     assert body(r)["type"] == "invalid_request_error"
 
 
-def test_generic_error_is_500_and_works_without_model():
+def test_generic_error_is_500_and_works_without_model() -> None:
     """Non-litellm errors map to 500, and the helper tolerates no model."""
     r = litellm_error_response(ValueError("weird"), model=None)
     assert r.status_code == 500

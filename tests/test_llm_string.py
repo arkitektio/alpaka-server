@@ -17,23 +17,23 @@ def make(
     return LLMModel(provider=Provider(name=name, kind=kind), model_id=model_id)
 
 
-def test_routes_by_kind_not_display_name():
+def test_routes_by_kind_not_display_name() -> None:
     assert make("openrouter", name="My OpenRouter").llm_string == "openrouter/gpt-4"
 
 
-def test_kind_prefix_differs_from_kind_value_where_litellm_does():
+def test_kind_prefix_differs_from_kind_value_where_litellm_does() -> None:
     assert make("google", model_id="gemini-pro").llm_string == "gemini/gemini-pro"
     assert make("aws", model_id="claude-3").llm_string == "bedrock/claude-3"
 
 
-def test_ollama_models_route_with_ollama_prefix():
+def test_ollama_models_route_with_ollama_prefix() -> None:
     assert (
         make("ollama", name="Local Ollama", model_id="llama3").llm_string
         == "ollama/llama3"
     )
 
 
-def test_custom_and_unknown_kinds_fall_back_to_name():
+def test_custom_and_unknown_kinds_fall_back_to_name() -> None:
     # The name-based convention is all the routing information such a provider
     # carries, so it is preserved for them.
     assert make("custom", name="mygateway").llm_string == "mygateway/gpt-4"

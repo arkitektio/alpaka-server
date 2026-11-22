@@ -30,7 +30,7 @@ class RoomEvent:
 
 
 async def room(
-    self,
+    self: object,
     info: Info,
     room: strawberry.ID,
     agent_id: strawberry.ID,

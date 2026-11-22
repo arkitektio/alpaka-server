@@ -18,6 +18,7 @@ from typing import Any
 
 from asgiref.sync import sync_to_async
 from authentikate.models import Organization, User
+from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -39,7 +40,7 @@ BUDGET_EXCEEDED_STATUS = 402
 
 
 def error_response(
-    message: str, code: str, status: int, detail: Any = None
+    message: str, code: str, status: int, detail: object = None
 ) -> JsonResponse:
     """A systemone-shaped error body."""
     body: dict[str, Any] = {"error": message, "code": code}
@@ -48,7 +49,7 @@ def error_response(
     return JsonResponse(body, status=status)
 
 
-def _decision_models(organization: Organization):
+def _decision_models(organization: Organization) -> QuerySet[LLMModel]:
     return (
         LLMModel.objects.for_organization(organization)
         .select_related("provider")
@@ -87,7 +88,9 @@ def list_decision_models(organization: Organization) -> list[LLMModel]:
     return list(_decision_models(organization).order_by("model_id"))
 
 
-async def _authenticate(request: HttpRequest):
+async def _authenticate(
+    request: HttpRequest,
+) -> tuple[tuple[User, object, Organization], None] | tuple[None, JsonResponse]:
     try:
         return await llm_views.authenticate_request(request), None
     except llm_views.AuthenticationError as e:

@@ -1,11 +1,12 @@
 import datetime
-from typing import Annotated, Optional
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Annotated, Any, Optional
 
 import kante
 import strawberry
 import strawberry_django
 from authentikate.strawberry.types import Client, Organization, User
-from django.db.models import Count
+from django.db.models import Count, Model, QuerySet
 from kante.types import Info
 from strawberry import scalars
 from strawberry_django.pagination import OffsetPaginationInput
@@ -16,8 +17,14 @@ from kammer import filters, models
 
 from .type_gen import create_stats_type
 
+if TYPE_CHECKING:
+    from alpaka_server.scoping import OrganizationScopedManager
+    from vector.types import Structure
 
-def build_prescoper(field="organization"):
+
+def build_prescoper(
+    field: str = "organization",
+) -> Callable[["OrganizationScopedManager", Info], QuerySet[Model]]:
     """Build a prescoper binding stats queries to the request's organization.
 
     ``create_stats_type`` hands the prescoper the model's *manager*, not a
@@ -33,7 +40,7 @@ def build_prescoper(field="organization"):
     unconditional.
     """
 
-    def prescoper(manager, info):
+    def prescoper(manager: "OrganizationScopedManager", info: Info) -> QuerySet[Model]:
         organization = info.context.request.organization
         if field == "organization":
             return manager.for_organization(organization)
@@ -53,14 +60,16 @@ class Room:
     """A room agents and users converse in."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Room], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Room]:
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
         return held_to_guest(
             queryset.filter(organization=info.context.request.organization), info
         )
 
     @classmethod
-    async def resolve_reference(cls, info, id: strawberry.ID):
+    async def resolve_reference(cls, info: Info, id: strawberry.ID) -> models.Room:
         """Resolve a federated reference, scoped to the request's organization.
 
         ``_entities`` resolves by ``__typename`` + ``id`` and does not go through
@@ -148,14 +157,16 @@ class Agent:
     """A participant in a room — a user acting through one client."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Agent], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Agent]:
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
         return held_to_guest(
             queryset.filter(room__organization=info.context.request.organization), info
         )
 
     @classmethod
-    async def resolve_reference(cls, info, id: strawberry.ID):
+    async def resolve_reference(cls, info: Info, id: strawberry.ID) -> models.Agent:
         """Resolve a federated reference, scoped to the request's organization.
 
         ``_entities`` resolves by ``__typename`` + ``id`` and does not go through
@@ -189,14 +200,16 @@ class Message:
     """A message an agent posted in a room."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Message], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Message]:
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
         return held_to_guest(
             queryset.filter(room__organization=info.context.request.organization), info
         )
 
     @classmethod
-    async def resolve_reference(cls, info, id: strawberry.ID):
+    async def resolve_reference(cls, info: Info, id: strawberry.ID) -> models.Message:
         """Resolve a federated reference, scoped to the request's organization.
 
         ``_entities`` resolves by ``__typename`` + ``id`` and does not go through

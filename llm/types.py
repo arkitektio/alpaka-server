@@ -1,11 +1,12 @@
 import datetime
 import decimal
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import strawberry
 import strawberry_django
 from authentikate.strawberry.types import Client, User
-from django.db.models import Count
+from django.db.models import Count, QuerySet
+from kante.types import Info
 from strawberry import scalars
 
 from alpaka_server.descriptors import DESCRIPTORS_DESCRIPTION, resolve_descriptors
@@ -15,6 +16,9 @@ from kammer.types import build_prescoper
 from llm import enums, filters, models
 from llm import scalars as llmscalars
 from llm.redaction import redact_config
+
+if TYPE_CHECKING:
+    from vector.types import ChromaCollection
 
 # --- Strawberry types ---
 
@@ -110,7 +114,9 @@ class LLMModel:
     """A large language model."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.LLMModel], info: Info, **kwargs: Any
+    ) -> QuerySet[models.LLMModel]:
         """Restrict every read of this type to the request's organization.
 
         strawberry_django runs this once per queryset, on list fields, singular
@@ -160,7 +166,9 @@ class Provider:
     """A provider of LLMs."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Provider], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Provider]:
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
         return held_to_guest(
             queryset.filter(organization=info.context.request.organization), info
@@ -211,7 +219,7 @@ class Provider:
         alongside harmless settings, so it is filtered on the way out rather
         than withheld wholesale.
         """
-        return redact_config(self.additional_config)
+        return scalars.JSON(redact_config(self.additional_config))
 
 
 @strawberry_django.type(
@@ -225,7 +233,9 @@ class DefaultUse:
     """A model registered as the default for one kind of task."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.DefaultUse], info: Info, **kwargs: Any
+    ) -> QuerySet[models.DefaultUse]:
         """Restrict to the calling user's own defaults in this organization."""
         return held_to_guest(
             queryset.filter(
@@ -254,7 +264,9 @@ class UsageRecord:
     """A recorded LLM call."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.UsageRecord], info: Info, **kwargs: Any
+    ) -> QuerySet[models.UsageRecord]:
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
         return held_to_guest(
             queryset.filter(organization=info.context.request.organization), info
@@ -342,7 +354,9 @@ class Budget:
     """A budget on LLM usage."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Budget], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Budget]:
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
         return held_to_guest(
             queryset.filter(organization=info.context.request.organization), info

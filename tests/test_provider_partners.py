@@ -12,7 +12,7 @@ from llm.logic import auto_configure_provider_partners
 
 
 @pytest.mark.django_db(transaction=True)
-def test_auto_configure_partner_provisions_provider_on_org_creation():
+def test_auto_configure_partner_provisions_provider_on_org_creation() -> None:
     llm_models.ProviderPartner.objects.create(
         name="Shared OpenRouter",
         identifier="shared-openrouter",
@@ -33,7 +33,7 @@ def test_auto_configure_partner_provisions_provider_on_org_creation():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_non_auto_partner_is_not_provisioned():
+def test_non_auto_partner_is_not_provisioned() -> None:
     llm_models.ProviderPartner.objects.create(
         name="Manual Provider",
         identifier="manual-provider",
@@ -47,7 +47,7 @@ def test_non_auto_partner_is_not_provisioned():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_auto_configure_is_idempotent():
+def test_auto_configure_is_idempotent() -> None:
     partner = llm_models.ProviderPartner.objects.create(
         name="Idempotent Provider",
         identifier="idempotent-provider",
@@ -68,7 +68,7 @@ def test_auto_configure_is_idempotent():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_same_partner_provisions_distinct_providers_across_orgs():
+def test_same_partner_provisions_distinct_providers_across_orgs() -> None:
     """Per-org uniqueness lets the same partner name exist in multiple orgs."""
     llm_models.ProviderPartner.objects.create(
         name="Fleet Provider",
@@ -93,7 +93,7 @@ def test_same_partner_provisions_distinct_providers_across_orgs():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_a_typesafe_shorthand_partner_reaches_the_hosted_api_by_default():
+def test_a_typesafe_shorthand_partner_reaches_the_hosted_api_by_default() -> None:
     """``providers: [{typesafe: key}]`` carries no api_base, and the auto-provisioned
     provider never passes through createProvider's default map, so the decision
     backend itself must fall back to TypeSafe's endpoint."""

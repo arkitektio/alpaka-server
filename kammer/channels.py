@@ -3,10 +3,10 @@
 import contextlib
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any
 
 from kante.channel import build_channel
 from kante.context import WsContext
+from kante.types import Info
 from pydantic import BaseModel, Field, ValidationError
 
 from kammer.enums import RoomEventKind
@@ -48,16 +48,16 @@ def room_group(room_id: int) -> str:
 _GROUP_REFCOUNTS = "_kammer_room_group_refcounts"
 
 
-def _ws_context(info: Any) -> WsContext:
+def _ws_context(info: Info | WsContext) -> WsContext:
     """The websocket context behind a subscription's ``info``."""
-    context = getattr(info, "context", info)
+    context = info if isinstance(info, WsContext) else info.context
     if not isinstance(context, WsContext):
         raise TypeError("The room subscription requires a websocket connection")
     return context
 
 
 async def listen_to_room(
-    info: Any, room_id: int
+    info: Info | WsContext, room_id: int
 ) -> AsyncGenerator[MessageSignal, None]:
     """This room's events, on a connection that may be watching several rooms.
 

@@ -2,17 +2,21 @@
 
 import datetime
 import logging
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import strawberry
 import strawberry_django
 from authentikate.strawberry.types import User
+from django.db.models import QuerySet
 from strawberry import scalars
 from strawberry.types import Info
 
 from alpaka_server.descriptors import DESCRIPTORS_DESCRIPTION, resolve_descriptors
 from alpaka_server.scoping import held_to_guest
 from vector import filters, gateway, models
+
+if TYPE_CHECKING:
+    from llm.types import LLMModel
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +67,9 @@ class ChromaCollection:
     """A collection of documents searchable by string."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.ChromaCollection], info: Info, **kwargs: Any
+    ) -> QuerySet[models.ChromaCollection]:
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
         return held_to_guest(
             queryset.filter(organization=info.context.request.organization), info

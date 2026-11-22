@@ -22,19 +22,21 @@ import contextlib
 import datetime as dt
 import logging
 import time
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, TypeVar
 
 import litellm
 from asgiref.sync import sync_to_async
 from authentikate.models import Client, Organization, User
-from django.db.models import Q, Sum
+from django.db.models import Q, QuerySet, Sum
 from django.utils import timezone
 
 from llm.enums import BudgetPeriod, UsageEndpoint, UsageStatus
 from llm.models import Budget, LLMModel, UsageRecord
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,9 @@ logger = logging.getLogger(__name__)
 class BudgetExceeded(Exception):
     """Raised before an LLM call when a hard budget is already spent."""
 
-    def __init__(self, budget: Budget, kind: str, used: Any, limit: Any) -> None:
+    def __init__(
+        self, budget: Budget, kind: str, used: int | Decimal, limit: int | Decimal
+    ) -> None:
         self.budget = budget
         self.kind = kind
         self.used = used
@@ -67,14 +71,15 @@ class UsageFacts:
 # ---------------------------------------------------------------------------
 
 
-def _int(value: Any) -> int:
+def _int(value: object) -> int:
     try:
-        return int(value or 0)
+        # Any value: what int() refuses is caught below.
+        return int(value or 0)  # pyright: ignore[reportArgumentType]
     except (TypeError, ValueError):
         return 0
 
 
-def _decimal(value: Any) -> Decimal | None:
+def _decimal(value: object) -> Decimal | None:
     if value is None:
         return None
     try:
@@ -83,7 +88,7 @@ def _decimal(value: Any) -> Decimal | None:
         return None
 
 
-def _get(container: Any, key: str) -> Any:
+def _get(container: object, key: str) -> object:
     if isinstance(container, dict):
         return container.get(key)
     return getattr(container, key, None)
@@ -113,7 +118,7 @@ def cost_from_tokens(
 
 
 def cost_of(
-    response: Any, *, model_string: str | None = None, call_type: str = "completion"
+    response: object, *, model_string: str | None = None, call_type: str = "completion"
 ) -> Decimal | None:
     """The cost litellm attached to ``response``, or its estimate, or ``None``."""
     hidden = getattr(response, "_hidden_params", None)
@@ -133,7 +138,7 @@ def cost_of(
 
 
 def usage_from_response(
-    response: Any, *, model_string: str | None = None, call_type: str = "completion"
+    response: object, *, model_string: str | None = None, call_type: str = "completion"
 ) -> UsageFacts:
     """Read token counts and cost from a litellm response (or a raw JSON dict)."""
     facts = UsageFacts()
@@ -207,7 +212,7 @@ def usage_from_stream(
 # ---------------------------------------------------------------------------
 
 
-def _instance_or_none(value: Any, cls: type) -> Any:
+def _instance_or_none(value: object, cls: type[_T]) -> _T | None:
     return value if isinstance(value, cls) else None
 
 
@@ -280,11 +285,11 @@ class UsageTracker:
 
     def __init__(self, model_string: str | None) -> None:
         self.model_string = model_string
-        self.response: Any = None
+        self.response: object = None
         self.call_type = "completion"
         self.facts: UsageFacts | None = None
 
-    def set(self, response: Any, *, call_type: str = "completion") -> None:
+    def set(self, response: object, *, call_type: str = "completion") -> None:
         """Remember the litellm response (or raw JSON) to read usage from."""
         self.response = response
         self.call_type = call_type
@@ -435,7 +440,7 @@ class BudgetConsumption:
         return max(self.budget.limit_cost - self.used_cost, Decimal(0))
 
     @property
-    def breached(self) -> tuple[str, Any, Any] | None:
+    def breached(self) -> tuple[str, int | Decimal, int | Decimal] | None:
         """``(kind, used, limit)`` for the first exceeded limit, or ``None``."""
         if (
             self.budget.limit_tokens is not None
@@ -456,7 +461,7 @@ class BudgetConsumption:
 
 def applicable_budgets(
     organization: Organization, user: User | None, model: LLMModel | None
-):
+) -> QuerySet[Budget]:
     """The budgets that govern a call by ``user`` to ``model`` in ``organization``."""
     user_id = getattr(user, "pk", None) if isinstance(user, User) else None
     model_id = getattr(model, "pk", None) if isinstance(model, LLMModel) else None
@@ -469,7 +474,7 @@ def applicable_budgets(
 
 
 def consumption_for(
-    budgets: Sequence[Budget], now: dt.datetime | None = None
+    budgets: Iterable[Budget], now: dt.datetime | None = None
 ) -> list[BudgetConsumption]:
     """Current-period consumption for each budget, in one aggregate query."""
     budgets = list(budgets)

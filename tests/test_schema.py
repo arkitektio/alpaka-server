@@ -1,4 +1,4 @@
-def test_stringify_schema():
+def test_stringify_schema() -> None:
     """The schema should produce a non-empty SDL string with the root types."""
     from alpaka_server.schema import schema
 

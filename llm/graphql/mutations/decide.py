@@ -89,7 +89,7 @@ def serialize_questions(questions: list[QuestionInput]) -> dict:
     return wire
 
 
-def _text(value: Any) -> str:
+def _text(value: object) -> str:
     return value if isinstance(value, str) else json.dumps(value)
 
 

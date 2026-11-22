@@ -2,6 +2,7 @@
 the kammer Room and Message types (see ``kammer/filters.py``)."""
 
 import datetime
+from typing import TypedDict
 
 import pytest
 from asgiref.sync import sync_to_async
@@ -9,10 +10,22 @@ from authentikate.models import Client, Organization, User
 from django.utils import timezone
 
 from kammer import models
+from tests.support import AExecute
+
+
+class Seeded(TypedDict):
+    """Two rooms of ``static_org``, an agent, a structure and three messages."""
+
+    org: Organization
+    room: models.Room
+    other_room: models.Room
+    agent: models.Agent
+    structure: models.Structure
+    messages: list[models.Message]
 
 
 @sync_to_async
-def seed():
+def seed() -> Seeded:
     """Create a room with three messages whose ``created_at`` is strictly
     increasing, plus a structure the room is "talking about"."""
     org = Organization.objects.get(identifier="static_issuer#static_org")
@@ -58,7 +71,7 @@ def seed():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_message_filter_search(aexecute):
+async def test_message_filter_search(aexecute: AExecute) -> None:
     """``search`` filters messages by a case-insensitive substring of ``text``."""
     await seed()
 
@@ -80,7 +93,7 @@ async def test_message_filter_search(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_message_filter_ids(aexecute):
+async def test_message_filter_ids(aexecute: AExecute) -> None:
     """``ids`` restricts messages to the given primary keys."""
     data = await seed()
     wanted = [data["messages"][0], data["messages"][2]]
@@ -102,7 +115,7 @@ async def test_message_filter_ids(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_message_order_created_at(aexecute):
+async def test_message_order_created_at(aexecute: AExecute) -> None:
     """``ordering`` exposes the ``order_type`` and sorts by ``created_at``."""
     data = await seed()
     ids_in_creation_order = [str(m.id) for m in data["messages"]]
@@ -128,7 +141,7 @@ async def test_message_order_created_at(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_message_filter_and_order_combined(aexecute):
+async def test_message_filter_and_order_combined(aexecute: AExecute) -> None:
     """Filtering and ordering compose in a single query."""
     await seed()
 
@@ -154,7 +167,7 @@ async def test_message_filter_and_order_combined(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_room_order_title(aexecute):
+async def test_room_order_title(aexecute: AExecute) -> None:
     """``ordering`` is now exposed on the Room type and sorts by ``title``."""
     await seed()  # creates "Weather room" and "Cooking room"
 
@@ -177,7 +190,7 @@ async def test_room_order_title(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_room_filter_search(aexecute):
+async def test_room_filter_search(aexecute: AExecute) -> None:
     """``search`` filters rooms by a case-insensitive substring of ``title``."""
     await seed()
 
@@ -197,7 +210,7 @@ async def test_room_filter_search(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_room_filter_ids(aexecute):
+async def test_room_filter_ids(aexecute: AExecute) -> None:
     """``ids`` restricts rooms to the given primary keys."""
     data = await seed()
 
@@ -217,7 +230,7 @@ async def test_room_filter_ids(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_room_filter_talking_about(aexecute):
+async def test_room_filter_talking_about(aexecute: AExecute) -> None:
     """``talkingAbout`` keeps only rooms whose contextual structures match the
     given identifier/object, returning none when the structure is unknown."""
     await seed()
@@ -248,7 +261,7 @@ async def test_room_filter_talking_about(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_room_reads_back_what_it_talks_about(aexecute):
+async def test_room_reads_back_what_it_talks_about(aexecute: AExecute) -> None:
     """``Room.talkingAbout`` reads the structures ``createRoom``/``talkingAbout`` write and filter on."""
     await seed()
 
@@ -268,7 +281,7 @@ async def test_room_reads_back_what_it_talks_about(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_rooms_order_by_their_latest_message(aexecute):
+async def test_rooms_order_by_their_latest_message(aexecute: AExecute) -> None:
     """``lastMessageAt`` sorts by the newest message, falling back to creation; ``lastActivity`` is the same time.
 
     The room with messages was created first, but its last message is newer than
@@ -278,7 +291,7 @@ async def test_rooms_order_by_their_latest_message(aexecute):
     data = await seed()
 
     @sync_to_async
-    def age_the_rooms():
+    def age_the_rooms() -> None:
         models.Room.objects.for_write().filter(id=data["room"].id).update(
             created_at=timezone.now() - datetime.timedelta(days=10)
         )
@@ -314,6 +327,7 @@ async def test_rooms_order_by_their_latest_message(aexecute):
     oldest_first = await aexecute(
         "query { rooms(ordering: [{ lastMessageAt: ASC }]) { title } }"
     )
+    assert oldest_first.data is not None
     assert [row["title"] for row in oldest_first.data["rooms"]] == [
         "Cooking room",
         "Weather room",
@@ -322,7 +336,7 @@ async def test_rooms_order_by_their_latest_message(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_rooms_count_their_messages(aexecute):
+async def test_rooms_count_their_messages(aexecute: AExecute) -> None:
     """``messageCount`` counts a room's messages in the list and on a single room, so a card need not fetch them."""
     data = await seed()
 

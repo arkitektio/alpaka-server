@@ -12,6 +12,7 @@ from asgiref.sync import sync_to_async
 from llm import models as llm_models
 from llm.graphql.mutations.provider import _resolve_api_base
 from llm.logic import strip_routing_prefix
+from tests.support import AExecute
 
 CREATE_PROVIDER = """
 mutation Create($input: ProviderInput!) {
@@ -99,7 +100,7 @@ def test_routing_prefix_is_stripped_once() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["AZURE", "CUSTOM"])
 async def test_kinds_without_a_shared_endpoint_still_need_one(
-    aexecute, kind: str
+    aexecute: AExecute, kind: str
 ) -> None:
     result = await aexecute(CREATE_PROVIDER, {"input": {"kind": kind, "apiKey": "key"}})
     assert result.errors is not None
@@ -109,7 +110,7 @@ async def test_kinds_without_a_shared_endpoint_still_need_one(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_anthropic_lists_every_page_and_routes_once(
-    aexecute, anthropic_url: str
+    aexecute: AExecute, anthropic_url: str
 ) -> None:
     result = await aexecute(
         CREATE_PROVIDER,
@@ -123,6 +124,7 @@ async def test_anthropic_lists_every_page_and_routes_once(
     )
     assert result.errors is None, result.errors
 
+    assert result.data is not None
     provider = result.data["createProvider"]
     assert sorted(model["modelId"] for model in provider["models"]) == ANTHROPIC_MODELS
 
@@ -136,7 +138,7 @@ async def test_anthropic_lists_every_page_and_routes_once(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_rejected_anthropic_key_fails_creation(
-    aexecute, anthropic_url: str
+    aexecute: AExecute, anthropic_url: str
 ) -> None:
     result = await aexecute(
         CREATE_PROVIDER,
@@ -148,7 +150,9 @@ async def test_a_rejected_anthropic_key_fails_creation(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_providers_count_their_models(aexecute, anthropic_url: str) -> None:
+async def test_providers_count_their_models(
+    aexecute: AExecute, anthropic_url: str
+) -> None:
     """``modelCount`` counts a provider's models, listed or on its own, and a page of them reads through `models`."""
     created = await aexecute(
         CREATE_PROVIDER,
@@ -161,12 +165,14 @@ async def test_providers_count_their_models(aexecute, anthropic_url: str) -> Non
         },
     )
     assert created.errors is None, created.errors
+    assert created.data is not None
     provider = created.data["createProvider"]
 
     listed = await aexecute(
         "query { providers { id modelCount models(pagination: { limit: 1 }) { id } } }"
     )
     assert listed.errors is None, listed.errors
+    assert listed.data is not None
     row = next(p for p in listed.data["providers"] if p["id"] == provider["id"])
     assert row["modelCount"] == len(ANTHROPIC_MODELS)
     assert len(row["models"]) == 1
@@ -175,4 +181,5 @@ async def test_providers_count_their_models(aexecute, anthropic_url: str) -> Non
         "query ($id: ID!) { provider(id: $id) { modelCount } }", {"id": provider["id"]}
     )
     assert single.errors is None, single.errors
+    assert single.data is not None
     assert single.data["provider"]["modelCount"] == len(ANTHROPIC_MODELS)

@@ -11,6 +11,8 @@ them (``alpaka_server.scoping.held_to_guest``) and the ``CollaborationGate`` dro
 resolver hands out that is in none of them. Their only write is ``send``, into a room of theirs.
 """
 
+from typing import Any
+
 import strawberry
 import strawberry_django
 from arkitekt_service.collaborations import graphql as collaboration_types
@@ -74,7 +76,7 @@ def _shareable(model: type[Model], id: strawberry.ID, info: Info) -> Model:
 collaboration_api = collaboration_types.resolvers(fetch=_shareable)
 
 
-def field(scope: str = "alpaka_read", **kwargs):
+def field(scope: str = "alpaka_read", **kwargs: Any) -> Any:  # noqa: ANN401 -- as strawberry_django.field: the value of `x: T = field()`
     "A field an app needs ``scope`` for (``alpaka_read``, unless it says otherwise)."
     return strawberry_django.field(extensions=[AuthExtension(scopes=[scope])], **kwargs)
 
@@ -83,8 +85,8 @@ def mutation(
     scope: str = "alpaka_write",
     roles: list[str] | None = None,
     guests: bool = False,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Any:  # noqa: ANN401 -- as strawberry_django.mutation: the value of `x: T = mutation()`
     """A write: an app needs ``scope`` for it, a member one of ``roles`` (``alpaka_editor`` unless it says
     otherwise; ``alpaka_admin`` holds every role).
 

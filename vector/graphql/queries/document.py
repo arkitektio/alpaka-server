@@ -53,7 +53,7 @@ async def documents(info: Info, input: inputs.QueryInput) -> list[types.Document
         docs = results["documents"][q]
         metadatas = all_metadatas[q] or [None] * len(ids)
         distances = all_distances[q] or [None] * len(ids)
-        for id_, doc, meta, dist in zip(ids, docs, metadatas, distances):
+        for id_, doc, meta, dist in zip(ids, docs, metadatas, distances, strict=False):
             current = best.get(id_)
             if current is None or (
                 dist is not None

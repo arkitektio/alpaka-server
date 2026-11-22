@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
@@ -8,7 +10,7 @@ from llm.models import ProviderPartner
 class Command(BaseCommand):
     help = "Import provider partners from the validated config. Run before organizations are created."
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         # Re-validate the config-sourced list (settings stores plain dicts).
         config = ProviderPartnerConfigModel(partners=settings.PROVIDER_PARTNERS)
 

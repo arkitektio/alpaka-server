@@ -1,9 +1,12 @@
 """GraphQL types for the memory app."""
 
 import datetime
+from typing import Any
 
 import strawberry
 import strawberry_django
+from django.db.models import QuerySet
+from kante.types import Info
 
 from memory import filters, models
 from memory.enums import MemoryKind
@@ -21,7 +24,9 @@ class Memory:
     """A memory of the assigner's: only ever theirs, and only ever from a task they assigned."""
 
     @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
+    def get_queryset(
+        cls, queryset: QuerySet[models.Memory], info: Info, **kwargs: Any
+    ) -> QuerySet[models.Memory]:
         """Hold every read to the assigner of the request's task, in its organization."""
         user, organization = memory_owner(info)
         return queryset.filter(organization=organization, user=user)

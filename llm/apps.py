@@ -5,6 +5,6 @@ class LLMConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "llm"
 
-    def ready(self):
+    def ready(self) -> None:
         # Connect the organization post_save receiver that auto-provisions providers.
         from llm import signals  # noqa: F401

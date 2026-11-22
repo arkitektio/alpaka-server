@@ -12,7 +12,7 @@ import pytest
 from llm.errors import wrap_llm_errors
 
 
-def make_model():
+def make_model() -> types.SimpleNamespace:
     """A minimal stand-in for ``llm.models.LLMModel`` exposing only the
     attributes ``wrap_llm_errors`` reads."""
     provider = types.SimpleNamespace(
@@ -27,14 +27,14 @@ def make_model():
     )
 
 
-def test_passthrough_on_success():
+def test_passthrough_on_success() -> None:
     """No exception inside the block -> nothing raised, value usable."""
     with wrap_llm_errors(make_model()):
         result = 42
     assert result == 42
 
 
-def test_api_error_includes_full_context():
+def test_api_error_includes_full_context() -> None:
     """An upstream ``APIError`` (the reported 403 case) is re-raised naming the
     model, provider, kind, endpoint, upstream provider and status code."""
     model = make_model()
@@ -60,7 +60,7 @@ def test_api_error_includes_full_context():
     assert "Sakana AI" in msg  # the buried upstream detail is preserved
 
 
-def test_original_exception_is_chained():
+def test_original_exception_is_chained() -> None:
     """The litellm exception is preserved as ``__cause__`` for the traceback."""
     original = litellm.exceptions.APIError(
         status_code=500, message="boom", llm_provider="openrouter", model="x"
@@ -71,7 +71,7 @@ def test_original_exception_is_chained():
     assert excinfo.value.__cause__ is original
 
 
-def test_authentication_error_wording():
+def test_authentication_error_wording() -> None:
     """Auth failures use the dedicated, REST-consistent wording."""
     with pytest.raises(Exception) as excinfo:
         with wrap_llm_errors(make_model()):
@@ -83,7 +83,7 @@ def test_authentication_error_wording():
     assert "openrouter/sakana" in msg
 
 
-def test_rate_limit_error_wording():
+def test_rate_limit_error_wording() -> None:
     """Rate-limit failures use the dedicated, REST-consistent wording."""
     with pytest.raises(Exception) as excinfo:
         with wrap_llm_errors(make_model()):
@@ -95,7 +95,7 @@ def test_rate_limit_error_wording():
     assert "openrouter/sakana" in msg
 
 
-def test_generic_exception_still_gets_context():
+def test_generic_exception_still_gets_context() -> None:
     """Non-litellm errors still get model/provider context attached."""
     with pytest.raises(Exception) as excinfo:
         with wrap_llm_errors(make_model()):

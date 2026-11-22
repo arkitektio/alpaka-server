@@ -7,17 +7,20 @@ calls an LLM on behalf of a room; the client forwards the tokens it received."""
 
 import asyncio
 import contextlib
+from typing import Any
 
 import pytest
 from asgiref.sync import sync_to_async
 from authentikate.models import Organization
 from channels.layers import get_channel_layer
+from kante.context import HttpContext, WsContext
 
 from alpaka_server.schema import schema
 from kammer import models as kammer_models
 from kammer.channels import MessageSignal, message_channel, room_group
 from kammer.enums import RoomEventKind
 from kammer.streaming import append_delta as _append_delta
+from tests.support import AExecute, WsContexts
 
 START = "mutation($input: StartMessageInput!) { startMessage(input: $input) { id text isStreaming } }"
 APPEND = "mutation($input: AppendMessageInput!) { appendMessage(input: $input) { id text isStreaming } }"
@@ -35,26 +38,32 @@ ROOM = """
 
 
 @sync_to_async
-def make_room(org="static_org"):
-    org = Organization.objects.get(identifier=f"static_issuer#{org}")
+def make_room(name: str = "static_org") -> kammer_models.Room:
+    org = Organization.objects.get(identifier=f"static_issuer#{name}")
     return kammer_models.Room.objects.for_write().create(
         title="stream", organization=org
     )
 
 
 @sync_to_async
-def load_message(message_id):
+def load_message(message_id: str | int) -> kammer_models.Message:
     return kammer_models.Message.all_objects.get(id=message_id)
 
 
 @sync_to_async
-def history_count(message_id):
+def history_count(message_id: str | int) -> int:
     return kammer_models.Message.all_objects.get(
         id=message_id
     ).provenance_entries.count()
 
 
-async def start(aexecute, room, agent="writer", context=None, text=""):
+async def start(
+    aexecute: AExecute,
+    room: kammer_models.Room,
+    agent: str = "writer",
+    context: HttpContext | WsContext | None = None,
+    text: str = "",
+) -> dict[str, Any]:
     result = await aexecute(
         START,
         {"input": {"room": str(room.id), "agentId": agent, "text": text}},
@@ -69,7 +78,7 @@ async def start(aexecute, room, agent="writer", context=None, text=""):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_start_append_finish_flow(aexecute):
+async def test_start_append_finish_flow(aexecute: AExecute) -> None:
     room = await make_room()
     started = await start(aexecute, room)
     assert started["text"] == "" and started["isStreaming"] is True
@@ -77,10 +86,12 @@ async def test_start_append_finish_flow(aexecute):
     first = await aexecute(
         APPEND, {"input": {"message": started["id"], "delta": "Hel"}}
     )
+    assert first.data is not None
     assert first.data["appendMessage"]["text"] == "Hel", first.errors
     second = await aexecute(
         APPEND, {"input": {"message": started["id"], "delta": "lo"}}
     )
+    assert second.data is not None
     assert second.data["appendMessage"] == {
         "id": started["id"],
         "text": "Hello",
@@ -88,7 +99,9 @@ async def test_start_append_finish_flow(aexecute):
     }, second.errors
 
     finished = await aexecute(FINISH, {"input": {"message": started["id"]}})
+    assert finished.data is not None
     assert finished.data["finishMessage"]["text"] == "Hello", finished.errors
+    assert finished.data is not None
     assert finished.data["finishMessage"]["isStreaming"] is False
 
     row = await load_message(started["id"])
@@ -99,7 +112,7 @@ async def test_start_append_finish_flow(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_finish_text_override_and_structures(aexecute):
+async def test_finish_text_override_and_structures(aexecute: AExecute) -> None:
     room = await make_room()
     started = await start(aexecute, room)
     await aexecute(APPEND, {"input": {"message": started["id"], "delta": "partial"}})
@@ -123,7 +136,7 @@ async def test_finish_text_override_and_structures(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_append_is_atomic_under_concurrency(aexecute):
+async def test_append_is_atomic_under_concurrency(aexecute: AExecute) -> None:
     """Fifty concurrent appends, each on its own connection, lose nothing."""
     room = await make_room()
     started = await start(aexecute, room)
@@ -139,7 +152,7 @@ async def test_append_is_atomic_under_concurrency(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_finished_message_is_immutable(aexecute):
+async def test_finished_message_is_immutable(aexecute: AExecute) -> None:
     room = await make_room()
     started = await start(aexecute, room, text="done")
     await aexecute(FINISH, {"input": {"message": started["id"]}})
@@ -158,8 +171,10 @@ async def test_finished_message_is_immutable(aexecute):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_other_organization_and_other_user_are_refused(
-    aexecute, other_org_context, same_org_other_user_context
-):
+    aexecute: AExecute,
+    other_org_context: HttpContext,
+    same_org_other_user_context: HttpContext,
+) -> None:
     room = await make_room()
     started = await start(aexecute, room, text="mine")
 
@@ -188,8 +203,8 @@ async def test_other_organization_and_other_user_are_refused(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_send_input_has_no_notify_and_validates_parent(
-    aexecute, other_org_context
-):
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     sdl = schema.as_str()
     assert "notify" not in sdl.split("input SendMessageInput")[1].split("}")[0]
 
@@ -233,7 +248,13 @@ class Subscriber:
     subscription the way a client disconnect would.
     """
 
-    def __init__(self, ws_context, room, agent, filter_own=True):
+    def __init__(
+        self,
+        ws_context: WsContext,
+        room: kammer_models.Room,
+        agent: str,
+        filter_own: bool = True,
+    ) -> None:
         self.ws_context = ws_context
         self.variables = {
             "room": str(room.id),
@@ -243,7 +264,7 @@ class Subscriber:
         self.events: asyncio.Queue = asyncio.Queue()
         self.task = asyncio.create_task(self._run())
 
-    async def _run(self):
+    async def _run(self) -> None:
         sub = await schema.subscribe(
             ROOM, variable_values=self.variables, context_value=self.ws_context
         )
@@ -253,18 +274,20 @@ class Subscriber:
         async for result in sub:
             self.events.put_nowait(result)
 
-    async def next(self, timeout=5):
+    async def next(self, timeout: float = 5) -> dict[str, Any]:
         result = await asyncio.wait_for(self.events.get(), timeout)
         assert not result.errors, result.errors
         return result.data["room"]
 
-    async def close(self):
+    async def close(self) -> None:
         self.task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await self.task
 
 
-async def subscribe(ws_context, room, agent, filter_own=True):
+async def subscribe(
+    ws_context: WsContext, room: kammer_models.Room, agent: str, filter_own: bool = True
+) -> Subscriber:
     """Start a subscription and wait until it is registered with the room's group."""
     subscriber = Subscriber(ws_context, room, agent, filter_own)
     layer = get_channel_layer()
@@ -283,7 +306,9 @@ async def subscribe(ws_context, room, agent, filter_own=True):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_subscription_sees_created_updated_finished(aexecute, ws_contexts):
+async def test_subscription_sees_created_updated_finished(
+    aexecute: AExecute, ws_contexts: WsContexts
+) -> None:
     room = await make_room()
     listener = await subscribe(await ws_contexts(), room, "listener")
 
@@ -314,7 +339,9 @@ async def test_subscription_sees_created_updated_finished(aexecute, ws_contexts)
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_subscription_filter_own(aexecute, ws_contexts):
+async def test_subscription_filter_own(
+    aexecute: AExecute, ws_contexts: WsContexts
+) -> None:
     room = await make_room()
     # Same user, client and agent name as the mutations -> own events hidden.
     own = await subscribe(await ws_contexts(), room, "writer")
@@ -333,7 +360,7 @@ async def test_subscription_filter_own(aexecute, ws_contexts):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_subscription_join_and_leave(ws_contexts):
+async def test_subscription_join_and_leave(ws_contexts: WsContexts) -> None:
     room = await make_room()
     first = await subscribe(await ws_contexts(), room, "first")
 
@@ -350,7 +377,9 @@ async def test_subscription_join_and_leave(ws_contexts):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_two_rooms_on_one_connection_do_not_cross_feed(aexecute, ws_contexts):
+async def test_two_rooms_on_one_connection_do_not_cross_feed(
+    aexecute: AExecute, ws_contexts: WsContexts
+) -> None:
     """Group membership alone does not scope a subscription.
 
     Strawberry's consumer fans a channel message to every listen queue of that
@@ -380,8 +409,8 @@ async def test_two_rooms_on_one_connection_do_not_cross_feed(aexecute, ws_contex
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_signal_for_a_deleted_message_does_not_kill_the_subscription(
-    aexecute, ws_contexts
-):
+    aexecute: AExecute, ws_contexts: WsContexts
+) -> None:
     """Deleting a room cascades to its messages; a signal already in flight for one
     must be skipped, not raise out of the subscription's ``async for``."""
     room = await make_room()
@@ -409,8 +438,8 @@ async def test_a_signal_for_a_deleted_message_does_not_kill_the_subscription(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_closing_one_subscription_does_not_silence_a_sibling_on_the_same_room(
-    aexecute, ws_contexts
-):
+    aexecute: AExecute, ws_contexts: WsContexts
+) -> None:
     """``listen_to_channel(groups=...)`` discards with the per-*connection* channel
     name, so closing one subscription used to remove the whole connection from the
     room. ``listen_to_room`` refcounts the membership instead."""

@@ -6,6 +6,9 @@ settings), with the roles they hold in each; the guest token is minted per test.
 messages) is in it with the room, and the structures its messages were posted about come along.
 """
 
+from collections.abc import Callable, Iterator
+from typing import TypeAlias
+
 import httpx
 import pytest
 from arkitekt_service.collaborations import items as collaboration_items
@@ -16,6 +19,7 @@ from authentikate.models import Client, Organization, User
 from channels.testing import WebsocketCommunicator
 from django.core.asgi import get_asgi_application
 from kante.context import HttpContext, UniversalRequest
+from pytest_django.fixtures import SettingsWrapper
 from strawberry.http.temporal_response import TemporalResponse
 from strawberry.types import ExecutionResult
 
@@ -41,8 +45,14 @@ def _context(token: str) -> HttpContext:
     )
 
 
+#: ``guest``: a context for a guest granted these collaborations, with these roles in each.
+Guest: TypeAlias = Callable[[dict[Collaboration, list[str]]], HttpContext]
+
+
 @pytest.fixture
-def guest(db, authenticated_context, settings):
+def guest(
+    db: None, authenticated_context: HttpContext, settings: SettingsWrapper
+) -> Iterator[Guest]:
     """``guest({collaboration: roles})``: a context presenting a guest's token granted those collaborations on instance "1"."""
 
     def mint(collaborations: dict[Collaboration, list[str]]) -> HttpContext:
@@ -121,29 +131,35 @@ def _collaboration(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_guest_reads_the_room_in_their_collaboration_and_nothing_else(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     shared, (hello, _) = await _room("Shared", "hello", "world")
     other, (secret,) = await _room("Other", "a secret")
     ctx = guest({await _collaboration(shared): []})
 
     listed = await _run(ctx, ROOMS)
     assert not listed.errors, listed.errors
+    assert listed.data is not None
     assert [room["id"] for room in listed.data["rooms"]] == [str(shared.id)]
     read = await _run(ctx, ROOM, id=str(shared.id))
     assert not read.errors, read.errors
+    assert read.data is not None
     assert sorted(m["text"] for m in read.data["room"]["messages"]) == [
         "hello",
         "world",
     ]
+    assert read.data is not None
     assert {m["agent"]["name"] for m in read.data["room"]["messages"]} == {
         "Shared agent"
     }
+    assert read.data is not None
     assert read.data["room"]["agents"] == [{"name": "Shared agent"}]
 
     messages = await _run(ctx, MESSAGES)
     assert not messages.errors, messages.errors
+    assert messages.data is not None
     assert str(secret.id) not in {m["id"] for m in messages.data["messages"]}
+    assert messages.data is not None
     assert len(messages.data["messages"]) == 2
     assert (await _run(ctx, ROOM, id=str(other.id))).errors
     assert (await _run(ctx, MESSAGE, id=str(secret.id))).errors
@@ -155,8 +171,8 @@ async def test_a_guest_reads_the_room_in_their_collaboration_and_nothing_else(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_message_is_shared_with_its_room_not_alone(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     room, (message,) = await _room("Room", "only this")
     # Alone, its room would be unreadable where it points at it: the room is put in instead.
     with pytest.raises(collaboration_items.SharedWithItsWhole):
@@ -168,14 +184,15 @@ async def test_a_message_is_shared_with_its_room_not_alone(
     )  # with its room, it is in already
     read = await _run(ctx, MESSAGE, id=str(message.id))
     assert not read.errors, read.errors
+    assert read.data is not None
     assert read.data["message"]["agent"]["name"] == "Room agent"
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_who_made_and_posts_in_a_shared_room_comes_with_it(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     room, _ = await _room("Room", "hi")
     ctx = guest({await _collaboration(room): []})
 
@@ -185,6 +202,7 @@ async def test_who_made_and_posts_in_a_shared_room_comes_with_it(
         id=str(room.id),
     )
     assert not read.errors, read.errors
+    assert read.data is not None
     assert read.data["room"] == {
         # Who is at work where is theirs, not the room's.
         "creator": {"sub": "1", "activeOrganization": None},
@@ -196,8 +214,8 @@ async def test_who_made_and_posts_in_a_shared_room_comes_with_it(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_what_a_message_was_posted_about_comes_along_when_it_is_posted_later(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     room, _ = await _room("Room")
     ctx = guest({await _collaboration(room): []})
 
@@ -213,8 +231,10 @@ async def test_what_a_message_was_posted_about_comes_along_when_it_is_posted_lat
     )
     assert not posted.errors, posted.errors
 
+    assert posted.data is not None
     read = await _run(ctx, MESSAGE, id=posted.data["send"]["id"])
     assert not read.errors, read.errors
+    assert read.data is not None
     assert read.data["message"]["attachedStructures"] == [
         {"identifier": "@mikro/image", "object": 7}
     ]
@@ -223,8 +243,8 @@ async def test_what_a_message_was_posted_about_comes_along_when_it_is_posted_lat
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_no_provider_model_or_collection_is_shown_to_a_guest_or_put_in_a_collaboration(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     room, _ = await _room("Room", "hi")
 
     @sync_to_async
@@ -251,6 +271,7 @@ async def test_no_provider_model_or_collection_is_shown_to_a_guest_or_put_in_a_c
     for field in ("providers", "llmModels", "chromaCollections"):
         listed = await _run(ctx, f"{{ {field} {{ id }} }}")
         assert not listed.errors, listed.errors
+        assert listed.data is not None
         assert listed.data[field] == []
     assert (
         await _run(
@@ -280,13 +301,16 @@ async def test_no_provider_model_or_collection_is_shown_to_a_guest_or_put_in_a_c
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_full_member_shares_a_room_over_graphql(authenticated_context, guest):
+async def test_a_full_member_shares_a_room_over_graphql(
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     room, _ = await _room("Room", "hi")
     member = _context("test")
     made = await _run(
         member, 'mutation { createCollaboration(input: {name: "With a guest"}) { id } }'
     )
     assert not made.errors, made.errors
+    assert made.data is not None
     collaboration = made.data["createCollaboration"]["id"]
     put = await _run(
         member,
@@ -298,6 +322,7 @@ async def test_a_full_member_shares_a_room_over_graphql(authenticated_context, g
         },
     )
     assert not put.errors, put.errors
+    assert put.data is not None
     assert put.data["addToCollaboration"]["items"] == [{"identifier": "@alpaka/room"}]
 
     ctx = guest({await Collaboration.objects.aget(pk=collaboration): []})
@@ -311,8 +336,8 @@ async def test_a_full_member_shares_a_room_over_graphql(authenticated_context, g
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_an_editor_in_the_collaboration_posts_there_and_only_there(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     room, _ = await _room("Room", "hi")
     other, _ = await _room("Other", "private")
     ctx = guest({await _collaboration(room): ["alpaka_editor"]})
@@ -324,6 +349,7 @@ async def test_an_editor_in_the_collaboration_posts_there_and_only_there(
     )
     assert not posted.errors, posted.errors
     read = await _run(ctx, ROOM, id=str(room.id))
+    assert read.data is not None
     assert "hello from outside" in {
         m["text"] for m in read.data["room"]["messages"]
     }  # part of the room, so in the collaboration
@@ -345,8 +371,8 @@ async def test_an_editor_in_the_collaboration_posts_there_and_only_there(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_viewer_posts_nothing_and_no_guest_does_anything_else(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     room, _ = await _room("Room", "hi")
     collaboration = await _collaboration(room)
     editor = guest({collaboration: ["alpaka_editor"]})
@@ -387,8 +413,8 @@ async def test_a_viewer_posts_nothing_and_no_guest_does_anything_else(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_guest_calls_no_model_and_streams_nothing_outside_graphql(
-    authenticated_context, guest
-):
+    authenticated_context: HttpContext, guest: Guest
+) -> None:
     room, _ = await _room("Room")
     guest({await _collaboration(room): ["alpaka_editor"]})
 
@@ -416,7 +442,7 @@ def _type_line(sdl: str, name: str) -> str:
     return next(line for line in sdl.splitlines() if line.startswith(f"type {name} "))
 
 
-def test_the_schema_says_what_each_type_is_and_where_a_guest_may_post():
+def test_the_schema_says_what_each_type_is_and_where_a_guest_may_post() -> None:
     sdl = str(schema)
     assert '@identified(by: "@alpaka/room")' in _type_line(sdl, "Room")
     send = next(

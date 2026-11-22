@@ -8,7 +8,9 @@ containers, and the TypeSafe SDK talks to the in-process ASGI app.
 
 import json
 import urllib.request
+from collections.abc import Iterator
 from decimal import Decimal
+from typing import Any
 
 import httpx
 import httpx2
@@ -17,6 +19,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from authentikate.models import Organization
 from django.core.asgi import get_asgi_application
+from kante.context import HttpContext
 from typesafe_sdk import (
     AsyncTypeSafeClient,
     Choice,
@@ -27,6 +30,7 @@ from typesafe_sdk import (
 )
 
 from llm import models as llm_models
+from tests.support import AExecute, BackendStack
 
 ASGI_APP = get_asgi_application()
 
@@ -88,7 +92,7 @@ TRIAGE = [
 ]
 
 
-def _http(method: str, url: str, body=None) -> dict:
+def _http(method: str, url: str, body: object = None) -> dict:
     data = json.dumps(body).encode() if body is not None else None
     request = urllib.request.Request(
         url, data=data, method=method, headers={"Content-Type": "application/json"}
@@ -99,7 +103,7 @@ def _http(method: str, url: str, body=None) -> dict:
 
 
 @pytest.fixture(scope="session")
-def ollaya_url(backend_stack) -> str:
+def ollaya_url(backend_stack: BackendStack) -> str:
     """The test Ollaya, with the test model pulled (a no-op once it is cached)."""
     url = f"http://localhost:{backend_stack['ollaya']}"
     last = _http("POST", f"{url}/api/pull", {"model": OLLAYA_MODEL})
@@ -108,42 +112,52 @@ def ollaya_url(backend_stack) -> str:
 
 
 @pytest.fixture(scope="session")
-def typesafe_url(backend_stack) -> str:
+def typesafe_url(backend_stack: BackendStack) -> str:
     return f"http://localhost:{backend_stack['faketypesafe']}"
 
 
+class TypeSafeAdmin:
+    """Admin handle on the fake TypeSafe at ``typesafe_url``."""
+
+    def __init__(self, typesafe_url: str) -> None:
+        self.typesafe_url = typesafe_url
+
+    def fail(self, status: int, times: int = 1) -> None:
+        _http(
+            "POST",
+            f"{self.typesafe_url}/_admin/fail",
+            {"status": status, "times": times},
+        )
+
+    def log(self) -> list:
+        with urllib.request.urlopen(
+            f"{self.typesafe_url}/_admin/log", timeout=5
+        ) as response:
+            return json.loads(response.read())
+
+
 @pytest.fixture
-def faketypesafe(typesafe_url):
+def faketypesafe(typesafe_url: str) -> Iterator[TypeSafeAdmin]:
     """Admin handle on the fake TypeSafe, reset around every test."""
-
-    class Admin:
-        def fail(self, status: int, times: int = 1) -> None:
-            _http(
-                "POST",
-                f"{typesafe_url}/_admin/fail",
-                {"status": status, "times": times},
-            )
-
-        def log(self) -> list:
-            with urllib.request.urlopen(
-                f"{typesafe_url}/_admin/log", timeout=5
-            ) as response:
-                return json.loads(response.read())
-
     _http("POST", f"{typesafe_url}/_admin/reset", {})
-    yield Admin()
+    yield TypeSafeAdmin(typesafe_url)
     _http("POST", f"{typesafe_url}/_admin/reset", {})
 
 
 async def create_provider(
-    aexecute, kind: str, api_base: str, api_key=None, context=None
-) -> dict:
+    aexecute: AExecute,
+    kind: str,
+    api_base: str,
+    api_key: str | None = None,
+    context: HttpContext | None = None,
+) -> dict[str, Any]:
     result = await aexecute(
         CREATE_PROVIDER,
         {"input": {"kind": kind, "apiBase": api_base, "apiKey": api_key}},
         context=context,
     )
     assert result.errors is None, result.errors
+    assert result.data is not None
     return result.data["createProvider"]
 
 
@@ -152,7 +166,9 @@ def model_id_of(provider: dict, name: str) -> str:
 
 
 @sync_to_async
-def usage_rows(org="static_org", endpoint=None):
+def usage_rows(
+    org: str = "static_org", endpoint: str | None = None
+) -> list[llm_models.UsageRecord]:
     rows = llm_models.UsageRecord.objects.for_organization(
         Organization.objects.get(identifier=f"static_issuer#{org}")
     ).order_by("id")
@@ -162,12 +178,14 @@ def usage_rows(org="static_org", endpoint=None):
 
 
 @pytest_asyncio.fixture
-async def ollaya(aexecute, ollaya_url):
+async def ollaya(aexecute: AExecute, ollaya_url: str) -> dict[str, Any]:
     return await create_provider(aexecute, "OLLAYA", ollaya_url)
 
 
 @pytest_asyncio.fixture
-async def typesafe(aexecute, typesafe_url, faketypesafe):
+async def typesafe(
+    aexecute: AExecute, typesafe_url: str, faketypesafe: TypeSafeAdmin
+) -> dict[str, Any]:
     return await create_provider(aexecute, "TYPESAFE", typesafe_url, TYPESAFE_KEY)
 
 
@@ -178,7 +196,9 @@ async def typesafe(aexecute, typesafe_url, faketypesafe):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_decision_providers_list_their_models_as_decision_only(ollaya, typesafe):
+async def test_decision_providers_list_their_models_as_decision_only(
+    ollaya: dict[str, Any], typesafe: dict[str, Any]
+) -> None:
     assert ollaya["kind"] == "OLLAYA"
     assert {m["modelId"] for m in ollaya["models"]} >= {OLLAYA_MODEL}
     assert {m["modelId"] for m in typesafe["models"]} == {"jev-1.13.0", "jev-latest"}
@@ -188,18 +208,22 @@ async def test_decision_providers_list_their_models_as_decision_only(ollaya, typ
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_pull_into_ollaya_registers_the_model(aexecute, ollaya):
+async def test_pull_into_ollaya_registers_the_model(
+    aexecute: AExecute, ollaya: dict[str, Any]
+) -> None:
     result = await aexecute(
         "mutation Pull($input: PullInput!) { pull(input: $input) { status detail } }",
         {"input": {"modelName": OLLAYA_MODEL, "provider": ollaya["id"]}},
     )
     assert result.errors is None, result.errors
+    assert result.data is not None
     assert result.data["pull"] == {"status": "success", "detail": None}
 
     unknown = await aexecute(
         "mutation Pull($input: PullInput!) { pull(input: $input) { status detail } }",
         {"input": {"modelName": "no-such-model:latest", "provider": ollaya["id"]}},
     )
+    assert unknown.data is not None
     assert unknown.data["pull"]["status"] == "error"
 
 
@@ -210,7 +234,9 @@ async def test_pull_into_ollaya_registers_the_model(aexecute, ollaya):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_decide_on_a_real_ollaya_model(aexecute, ollaya):
+async def test_decide_on_a_real_ollaya_model(
+    aexecute: AExecute, ollaya: dict[str, Any]
+) -> None:
     result = await aexecute(
         DECIDE,
         {
@@ -222,6 +248,7 @@ async def test_decide_on_a_real_ollaya_model(aexecute, ollaya):
         },
     )
     assert result.errors is None, result.errors
+    assert result.data is not None
     decision = result.data["decide"]
 
     assert decision["model"] == OLLAYA_MODEL
@@ -255,7 +282,9 @@ async def test_decide_on_a_real_ollaya_model(aexecute, ollaya):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_decide_accepts_a_json_object_as_state(aexecute, ollaya):
+async def test_decide_accepts_a_json_object_as_state(
+    aexecute: AExecute, ollaya: dict[str, Any]
+) -> None:
     state = {"subject": "Invoice 2026-114", "body": "Please pay the attached invoice."}
     question = [
         {
@@ -277,14 +306,15 @@ async def test_decide_accepts_a_json_object_as_state(aexecute, ollaya):
         },
     )
     assert result.errors is None, result.errors
+    assert result.data is not None
     assert result.data["decide"]["answers"][0]["choice"] == "billing"
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_decide_on_typesafe_forwards_the_key_and_prices_input_tokens(
-    aexecute, typesafe, faketypesafe
-):
+    aexecute: AExecute, typesafe: dict[str, Any], faketypesafe: TypeSafeAdmin
+) -> None:
     result = await aexecute(
         DECIDE,
         {
@@ -296,6 +326,7 @@ async def test_decide_on_typesafe_forwards_the_key_and_prices_input_tokens(
         },
     )
     assert result.errors is None, result.errors
+    assert result.data is not None
     decision = result.data["decide"]
     assert decision["model"] == "jev-1.13.0"  # the alias resolved upstream
     assert [a["key"] for a in decision["answers"]] == [
@@ -328,7 +359,9 @@ async def test_decide_on_typesafe_forwards_the_key_and_prices_input_tokens(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_overloaded_upstream_is_retried(aexecute, typesafe, faketypesafe):
+async def test_an_overloaded_upstream_is_retried(
+    aexecute: AExecute, typesafe: dict[str, Any], faketypesafe: TypeSafeAdmin
+) -> None:
     faketypesafe.fail(529, times=2)
     result = await aexecute(
         DECIDE,
@@ -347,8 +380,8 @@ async def test_an_overloaded_upstream_is_retried(aexecute, typesafe, faketypesaf
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_backend_refusal_is_the_error_and_is_recorded(
-    aexecute, typesafe, faketypesafe
-):
+    aexecute: AExecute, typesafe: dict[str, Any], faketypesafe: TypeSafeAdmin
+) -> None:
     # Two to ten levels is TypeSafe's limit, not alpaka's: the backend decides.
     question = [
         {
@@ -380,8 +413,8 @@ async def test_a_backend_refusal_is_the_error_and_is_recorded(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_duplicate_question_keys_are_rejected_before_any_call(
-    aexecute, typesafe, faketypesafe
-):
+    aexecute: AExecute, typesafe: dict[str, Any], faketypesafe: TypeSafeAdmin
+) -> None:
     questions = [
         {"noul": {"key": "same", "instructions": "a?"}},
         {"noul": {"key": "same", "instructions": "b?"}},
@@ -402,7 +435,9 @@ async def test_duplicate_question_keys_are_rejected_before_any_call(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_question_must_be_exactly_one_kind(aexecute, typesafe):
+async def test_a_question_must_be_exactly_one_kind(
+    aexecute: AExecute, typesafe: dict[str, Any]
+) -> None:
     both = [
         {
             "noul": {"key": "a", "instructions": "a?"},
@@ -425,8 +460,8 @@ async def test_a_question_must_be_exactly_one_kind(aexecute, typesafe):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_decide_without_a_model_uses_the_default_decision_model(
-    aexecute, typesafe
-):
+    aexecute: AExecute, typesafe: dict[str, Any]
+) -> None:
     missing = await aexecute(
         DECIDE, {"input": {"state": TICKET, "questions": TRIAGE[:1]}}
     )
@@ -441,12 +476,15 @@ async def test_decide_without_a_model_uses_the_default_decision_model(
         DECIDE, {"input": {"state": TICKET, "questions": TRIAGE[:1]}}
     )
     assert result.errors is None, result.errors
+    assert result.data is not None
     assert result.data["decide"]["model"] == "jev-1.13.0"
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_models_stay_on_their_side_of_chat_and_decide(aexecute, typesafe):
+async def test_models_stay_on_their_side_of_chat_and_decide(
+    aexecute: AExecute, typesafe: dict[str, Any]
+) -> None:
     org = await sync_to_async(Organization.objects.get)(
         identifier="static_issuer#static_org"
     )
@@ -490,7 +528,9 @@ async def test_models_stay_on_their_side_of_chat_and_decide(aexecute, typesafe):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_spent_budget_blocks_decide(aexecute, typesafe, faketypesafe):
+async def test_a_spent_budget_blocks_decide(
+    aexecute: AExecute, typesafe: dict[str, Any], faketypesafe: TypeSafeAdmin
+) -> None:
     org = await sync_to_async(Organization.objects.get)(
         identifier="static_issuer#static_org"
     )
@@ -514,8 +554,11 @@ async def test_a_spent_budget_blocks_decide(aexecute, typesafe, faketypesafe):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_another_organization_cannot_decide_with_this_organizations_model(
-    aexecute, typesafe, other_org_context, faketypesafe
-):
+    aexecute: AExecute,
+    typesafe: dict[str, Any],
+    other_org_context: HttpContext,
+    faketypesafe: TypeSafeAdmin,
+) -> None:
     result = await aexecute(
         DECIDE,
         {
@@ -536,7 +579,7 @@ async def test_another_organization_cannot_decide_with_this_organizations_model(
 # ---------------------------------------------------------------------------
 
 
-def sdk_client(**kwargs) -> AsyncTypeSafeClient:
+def sdk_client(**kwargs: Any) -> AsyncTypeSafeClient:
     """The stock TypeSafe SDK, pointed at alpaka with an alpaka token as its key."""
     return AsyncTypeSafeClient(
         api_key="test",
@@ -548,7 +591,9 @@ def sdk_client(**kwargs) -> AsyncTypeSafeClient:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_typesafe_sdk_works_against_alpaka(ollaya, typesafe, faketypesafe):
+async def test_the_typesafe_sdk_works_against_alpaka(
+    ollaya: dict[str, Any], typesafe: dict[str, Any], faketypesafe: TypeSafeAdmin
+) -> None:
     async with sdk_client() as client:
         listed = await client.models.list()
         assert {m.name for m in listed.models} >= {
@@ -592,8 +637,8 @@ async def test_the_typesafe_sdk_works_against_alpaka(ollaya, typesafe, faketypes
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_the_rest_surface_hides_upstream_credentials_and_relays_refusals(
-    typesafe, faketypesafe
-):
+    typesafe: dict[str, Any], faketypesafe: TypeSafeAdmin
+) -> None:
     async with sdk_client(retry=RetryPolicy(max_retries=0)) as client:
         await client.system_one(
             TICKET, {"urgent": Noul(instructions="Urgent?")}, model="jev-1.13.0"
@@ -621,8 +666,8 @@ async def test_the_rest_surface_hides_upstream_credentials_and_relays_refusals(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_spent_budget_answers_402_so_the_sdk_does_not_retry(
-    typesafe, faketypesafe
-):
+    typesafe: dict[str, Any], faketypesafe: TypeSafeAdmin
+) -> None:
     org = await sync_to_async(Organization.objects.get)(
         identifier="static_issuer#static_org"
     )
@@ -640,7 +685,9 @@ async def test_a_spent_budget_answers_402_so_the_sdk_does_not_retry(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_openai_routes_neither_list_nor_call_decision_models(typesafe):
+async def test_openai_routes_neither_list_nor_call_decision_models(
+    typesafe: dict[str, Any],
+) -> None:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ASGI_APP),
         base_url="http://testserver",

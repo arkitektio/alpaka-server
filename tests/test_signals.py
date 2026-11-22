@@ -7,13 +7,19 @@ checked the way rekuest checks it (the instance-key JWT, the body).
 import json
 import threading
 import time
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import TYPE_CHECKING
 
 import pytest
 from arkitekt_service import trust
 from joserfc.jwk import OKPKey
+from pytest_django.fixtures import SettingsWrapper
 
 from alpaka_server.service import service
+
+if TYPE_CHECKING:
+    from authentikate.models import Organization
 
 EXPECTED = {
     "@alpaka/room": ["CREATED", "DELETED"],
@@ -26,13 +32,13 @@ EXPECTED = {
 KEY = OKPKey.generate_key("Ed25519")
 
 
-class _Intake:
+class Intake:
     def __init__(self) -> None:
         self.received: list[dict] = []
         intake = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_POST(self):  # noqa: N802
+            def do_POST(self) -> None:  # noqa: N802
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 intake.received.append(
                     {
@@ -45,7 +51,7 @@ class _Intake:
                 self.send_response(202)
                 self.end_headers()
 
-            def log_message(self, *args):
+            def log_message(self, *args: object) -> None:
                 pass
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -63,8 +69,8 @@ class _Intake:
 
 
 @pytest.fixture
-def intake(settings):
-    server = _Intake()
+def intake(settings: SettingsWrapper) -> Iterator[Intake]:
+    server = Intake()
     settings.REKUEST_SERVICE = {"REKUEST_URL": server.url, "SERVICE": "alpaka"}
     settings.INSTANCE = {
         "PRIVATE_KEY": KEY.as_pem(private=True).decode(),
@@ -77,7 +83,7 @@ def intake(settings):
     server.server.server_close()
 
 
-def _organization():
+def _organization() -> "Organization":
     from authentikate.models import Organization
 
     return Organization.objects.get_or_create(
@@ -85,13 +91,13 @@ def _organization():
     )[0]
 
 
-def test_the_manifest_declares_every_model_signal():
+def test_the_manifest_declares_every_model_signal() -> None:
     assert {
         s["identifier"]: s["kinds"] for s in service.manifest()["signals"]
     } == EXPECTED
 
 
-def test_the_manifest_lists_what_alpaka_hosts_with_its_descriptors():
+def test_the_manifest_lists_what_alpaka_hosts_with_its_descriptors() -> None:
     hosted = {s["identifier"]: s for s in service.manifest()["structures"]}
     # Everything alpaka hosts is signalled, and nothing else is.
     assert set(hosted) == set(EXPECTED)
@@ -140,7 +146,7 @@ def test_the_manifest_lists_what_alpaka_hosts_with_its_descriptors():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_a_save_is_signalled_signed_by_this_instance(intake):
+def test_a_save_is_signalled_signed_by_this_instance(intake: Intake) -> None:
     from kammer.models import Room
 
     org = _organization()

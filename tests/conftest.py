@@ -4,6 +4,8 @@ import os
 import subprocess
 import time
 import urllib.request
+from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
 import psycopg
 import pytest
@@ -12,12 +14,17 @@ from authentikate.models import Client, Membership, Organization, User
 from django.contrib.contenttypes.management import create_contenttypes
 from django.db.models.signals import post_migrate
 from dokker import PortNotFoundError, testing
+from dokker.deployment import Deployment
 from kante.context import HttpContext, UniversalRequest, WsContext
+from pytest_django import DjangoDbBlocker
 from strawberry.http.temporal_response import TemporalResponse
+from strawberry.types import ExecutionResult
+
+from tests.support import AExecute, BackendStack, WsContexts
 
 
 def _wait_for_port(
-    e, service: str, container_port: int, deadline_seconds: float = 30.0
+    e: Deployment, service: str, container_port: int, deadline_seconds: float = 30.0
 ) -> int:
     """The host port docker published for ``service:container_port``, once the container is up."""
     deadline = time.monotonic() + deadline_seconds
@@ -35,7 +42,11 @@ OLLAYA_MODELS_VOLUME = "alpaka-test-ollaya"
 
 
 def _wait_for_http(
-    e, service: str, container_port: int, path: str, deadline_seconds: float = 180.0
+    e: Deployment,
+    service: str,
+    container_port: int,
+    path: str,
+    deadline_seconds: float = 180.0,
 ) -> int:
     """The host port of ``service``, once it answers ``path`` (the first run builds fakes)."""
     deadline = time.monotonic() + deadline_seconds
@@ -53,7 +64,7 @@ def _wait_for_http(
 
 
 @pytest.fixture(scope="session")
-def backend_stack():
+def backend_stack() -> Iterator[BackendStack]:
     docker_compose_path = os.path.join(
         os.path.dirname(__file__), "integration", "docker-compose.yaml"
     )
@@ -127,7 +138,7 @@ def backend_stack():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def embedding_model_warm():
+def embedding_model_warm() -> Iterator[None]:
     """Load the embedding model once per session, outside any test's DB transaction.
 
     Every save of a Room / ChromaCollection embeds its text, so the first one would otherwise
@@ -141,7 +152,7 @@ def embedding_model_warm():
 
 
 @pytest.fixture(scope="session")
-def django_db_modify_db_settings(backend_stack):
+def django_db_modify_db_settings(backend_stack: BackendStack) -> Iterator[None]:
     """Start the backend services, and point Django at the ports they came up on.
 
     pytest-django calls this before creating the test database, which is the only window
@@ -156,7 +167,9 @@ def django_db_modify_db_settings(backend_stack):
 
 
 @pytest.fixture(scope="session")
-def django_db_setup(django_db_setup, django_db_blocker):
+def django_db_setup(
+    django_db_setup: None, django_db_blocker: DjangoDbBlocker
+) -> Iterator[None]:
     # Every transaction=True test teardown flushes the DB and re-fires
     # post_migrate, which rebuilds all contenttypes and permissions from the
     # model registry (~1s per test). The rows never change between tests, so
@@ -174,7 +187,7 @@ def django_db_setup(django_db_setup, django_db_blocker):
     )
     post_migrate.disconnect(create_contenttypes)
 
-    def restore_contenttypes_and_permissions(sender, **kwargs):
+    def restore_contenttypes_and_permissions(sender: object, **kwargs: object) -> None:
         # post_migrate fires once per app config on flush; restore once.
         if getattr(sender, "label", None) != "contenttypes":
             return
@@ -203,7 +216,7 @@ def django_db_setup(django_db_setup, django_db_blocker):
 
 
 @pytest.fixture(scope="function")
-def authenticated_context(db, backend_stack) -> HttpContext:
+def authenticated_context(db: None, backend_stack: BackendStack) -> HttpContext:
     # Match the identity the static "test" token resolves to (see settings_test
     # STATIC_TOKENS + authentikate's token expansion), so the org/user on this
     # context is the same one the schema's AuthentikateExtension authenticates as
@@ -235,7 +248,7 @@ def authenticated_context(db, backend_stack) -> HttpContext:
 
 
 @pytest.fixture(scope="function")
-def other_org_context(db, backend_stack) -> HttpContext:
+def other_org_context(db: None, backend_stack: BackendStack) -> HttpContext:
     """A context for a user in a different organization (static token "othertest")."""
     user, _ = User.objects.get_or_create(
         sub="9", iss="static_issuer", defaults={"username": "static_issuer_9"}
@@ -264,7 +277,7 @@ def other_org_context(db, backend_stack) -> HttpContext:
 
 
 @pytest.fixture(scope="function")
-def same_org_other_user_context(db, backend_stack) -> HttpContext:
+def same_org_other_user_context(db: None, backend_stack: BackendStack) -> HttpContext:
     """A context for a *different* user in the same organization (static token "test2")."""
     user, _ = User.objects.get_or_create(
         sub="2", iss="static_issuer", defaults={"username": "static_issuer_2"}
@@ -290,7 +303,7 @@ def same_org_other_user_context(db, backend_stack) -> HttpContext:
 
 
 @pytest_asyncio.fixture
-async def ws_contexts(authenticated_context):
+async def ws_contexts(authenticated_context: HttpContext) -> AsyncIterator[WsContexts]:
     """A factory for websocket contexts, for testing subscriptions in-process.
 
     Each context gets its own ``ChannelsConsumer`` bound to the in-memory
@@ -313,7 +326,7 @@ async def ws_contexts(authenticated_context):
         consumer.channel_layer = layer
         consumer.channel_name = await layer.new_channel()
 
-        async def pump():
+        async def pump() -> None:
             while True:
                 await consumer.dispatch(await layer.receive(consumer.channel_name))
 
@@ -336,7 +349,7 @@ async def ws_contexts(authenticated_context):
 
 
 @pytest.fixture(scope="function")
-def simple_api_context(db, backend_stack) -> HttpContext:
+def simple_api_context(db: None, backend_stack: BackendStack) -> HttpContext:
     user, _ = User.objects.get_or_create(
         sub="1", iss="static_issuer", defaults={"username": "static_issuer_1"}
     )
@@ -364,11 +377,15 @@ def simple_api_context(db, backend_stack) -> HttpContext:
 
 
 @pytest.fixture
-def aexecute(authenticated_context):
+def aexecute(authenticated_context: HttpContext) -> AExecute:
     """Run a GraphQL document against the schema, defaulting to the authed context."""
     from alpaka_server.schema import schema
 
-    async def _run(query, variables=None, context=None):
+    async def _run(
+        query: str,
+        variables: dict[str, Any] | None = None,
+        context: HttpContext | WsContext | None = None,
+    ) -> ExecutionResult:
         return await schema.execute(
             query,
             variable_values=variables or {},

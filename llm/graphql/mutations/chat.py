@@ -9,6 +9,10 @@ from typing import Any
 
 import litellm
 from kante.types import Info
+from litellm.types.utils import Choices
+from litellm.types.utils import Usage as LitellmUsage
+from pydantic import BaseModel
+from strawberry import scalars
 
 from llm import manager, models
 from llm.enums import DefaultKind, UsageEndpoint
@@ -30,7 +34,7 @@ from llm.usage import enforce_budget, track_usage
 COMPLETION_TIMEOUT_SECONDS = 600
 
 
-def _thinking_blocks(choice: Any) -> list[ThinkingBlock] | None:
+def _thinking_blocks(choice: Choices) -> list[ThinkingBlock] | None:
     """Map a choice's reasoning blocks, when the upstream returned any."""
     blocks = getattr(choice.message, "thinking_blocks", None)
     if not blocks:
@@ -45,15 +49,17 @@ def _thinking_blocks(choice: Any) -> list[ThinkingBlock] | None:
     ]
 
 
-def _usage(usage: Any) -> Usage | None:
+def _usage(usage: LitellmUsage | None) -> Usage | None:
     """Map token accounting, including the per-modality breakdowns when present."""
     if not usage:
         return None
 
-    def as_json(value: Any) -> Any | None:
+    def as_json(value: object) -> scalars.JSON | None:
         if value is None:
             return None
-        return value.model_dump() if hasattr(value, "model_dump") else value
+        return scalars.JSON(
+            value.model_dump() if isinstance(value, BaseModel) else value
+        )
 
     return Usage(
         prompt_tokens=usage.prompt_tokens,

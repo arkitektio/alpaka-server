@@ -2,16 +2,28 @@
 vector (ChromaCollection) types — including the search field, which previously
 filtered on a non-existent ``title`` column."""
 
+from typing import TypedDict
+
 import pytest
 from asgiref.sync import sync_to_async
 from authentikate.models import Organization
 
 from llm import models as llm_models
+from tests.support import AExecute
 from vector import models as vector_models
 
 
+class Seeded(TypedDict):
+    """Two providers of ``static_org``, two models, and a collection."""
+
+    org: Organization
+    providers: dict[str, llm_models.Provider]
+    models: dict[str, llm_models.LLMModel]
+    collection: vector_models.ChromaCollection
+
+
 @sync_to_async
-def seed():
+def seed() -> Seeded:
     org = Organization.objects.get(identifier="static_issuer#static_org")
 
     openai = llm_models.Provider.objects.for_write().create(
@@ -53,7 +65,7 @@ def seed():
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_provider_filter_search(aexecute):
+async def test_provider_filter_search(aexecute: AExecute) -> None:
     """``search`` matches the Provider ``name`` (previously a broken ``title`` lookup)."""
     await seed()
 
@@ -73,7 +85,7 @@ async def test_provider_filter_search(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_provider_filter_ids(aexecute):
+async def test_provider_filter_ids(aexecute: AExecute) -> None:
     """``ids`` restricts providers to the given primary keys."""
     data = await seed()
 
@@ -97,7 +109,7 @@ async def test_provider_filter_ids(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_provider_order_name(aexecute):
+async def test_provider_order_name(aexecute: AExecute) -> None:
     """``ordering`` is exposed on the Provider type and sorts by ``name``."""
     await seed()  # creates "OpenAI" and "Ollama"
 
@@ -120,7 +132,7 @@ async def test_provider_order_name(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_llm_model_order_label(aexecute):
+async def test_llm_model_order_label(aexecute: AExecute) -> None:
     """``ordering`` is exposed on the LLMModel type and sorts by ``label``."""
     await seed()  # creates "GPT-4" and "Whisper"
 
@@ -139,7 +151,7 @@ async def test_llm_model_order_label(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_llm_model_filter_search(aexecute):
+async def test_llm_model_filter_search(aexecute: AExecute) -> None:
     """``search`` matches the LLMModel ``label``."""
     await seed()
 
@@ -159,7 +171,7 @@ async def test_llm_model_filter_search(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_llm_model_filter_input_modalities(aexecute):
+async def test_llm_model_filter_input_modalities(aexecute: AExecute) -> None:
     """``inputModalities`` keeps only models whose JSON list contains the values."""
     await seed()
 
@@ -179,7 +191,7 @@ async def test_llm_model_filter_input_modalities(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_chroma_collection_filter_search(aexecute):
+async def test_chroma_collection_filter_search(aexecute: AExecute) -> None:
     """``search`` matches the ChromaCollection ``name`` (previously a broken ``title`` lookup)."""
     await seed()
 

@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from authentikate.models import Organization, User
 from django.db import models
 
@@ -46,7 +48,7 @@ class Memory(EmbeddedDescriptionMixin, models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = OrganizationScopedManager()
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager()
     all_objects = models.Manager()
 
     class Meta:

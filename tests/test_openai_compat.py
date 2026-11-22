@@ -13,12 +13,15 @@ Needs Django configured (``DJANGO_SETTINGS_MODULE``) but no database; run with
 
 import copy
 import types
+from collections.abc import Awaitable, Callable, Iterator
+from typing import Any
 
 import httpx
 import litellm
 import openai
 import pytest
 from django.core.asgi import get_asgi_application
+from django.http import HttpRequest
 from openai import AsyncOpenAI
 
 import llm.views as views
@@ -41,20 +44,27 @@ FAKE_MODEL = types.SimpleNamespace(
 )
 
 
-async def _fake_auth(request):
+async def _fake_auth(
+    request: HttpRequest,
+) -> tuple[types.SimpleNamespace, types.SimpleNamespace, types.SimpleNamespace]:
     user = types.SimpleNamespace(id=1)
     return (user, user, user)
 
 
-async def _fake_model_lookup(*args, **kwargs):
+async def _fake_model_lookup(*args: Any, **kwargs: Any) -> types.SimpleNamespace:
     return FAKE_MODEL
 
 
-async def _noop(*args, **kwargs):
+async def _noop(*args: Any, **kwargs: Any) -> None:
     return None
 
 
-def _mock_litellm(monkeypatch, *, text="Hello world from mock", error=None):
+def _mock_litellm(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    text: str = "Hello world from mock",
+    error: BaseException | None = None,
+) -> None:
     """Patch the litellm entry points used by the views to return canned,
     OpenAI-shaped output via ``mock_response`` (or raise ``error``)."""
     orig_ac, orig_at, orig_ae = (
@@ -63,8 +73,10 @@ def _mock_litellm(monkeypatch, *, text="Hello world from mock", error=None):
         litellm.aembedding,
     )
 
-    def wrap(orig, mock_value):
-        async def inner(**kw):
+    def wrap(
+        orig: Callable[..., Awaitable[object]], mock_value: object
+    ) -> Callable[..., Awaitable[object]]:
+        async def inner(**kw: Any) -> object:
             if error is not None:
                 raise error
             kw["mock_response"] = mock_value
@@ -78,7 +90,7 @@ def _mock_litellm(monkeypatch, *, text="Hello world from mock", error=None):
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[AsyncOpenAI]:
     """An ``AsyncOpenAI`` client wired to the in-process Django ASGI app, with
     auth and model-lookup boundaries stubbed out."""
     monkeypatch.setattr(views, "authenticate_request", _fake_auth)
@@ -98,7 +110,9 @@ def client(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_non_streaming(client, monkeypatch):
+async def test_chat_completion_non_streaming(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A non-streamed chat completion parses into ``ChatCompletion``."""
     _mock_litellm(monkeypatch)
     resp = await client.chat.completions.create(
@@ -110,7 +124,9 @@ async def test_chat_completion_non_streaming(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_streaming(client, monkeypatch):
+async def test_chat_completion_streaming(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A streamed chat completion: every event parses into a
     ``ChatCompletionChunk``, the deltas reassemble, and ``[DONE]`` terminates the
     stream without the client raising."""
@@ -129,7 +145,9 @@ async def test_chat_completion_streaming(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_legacy_text_completion_streaming(client, monkeypatch):
+async def test_legacy_text_completion_streaming(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The legacy ``/v1/completions`` endpoint streams ``text_completion``
     chunks the client can parse."""
     _mock_litellm(monkeypatch)
@@ -142,7 +160,7 @@ async def test_legacy_text_completion_streaming(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_embeddings(client, monkeypatch):
+async def test_embeddings(client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch) -> None:
     """Embeddings parse into ``CreateEmbeddingResponse``."""
     _mock_litellm(monkeypatch)
     emb = await client.embeddings.create(model="x", input="hello")
@@ -152,7 +170,9 @@ async def test_embeddings(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_upstream_403_surfaces_as_typed_client_error(client, monkeypatch):
+async def test_upstream_403_surfaces_as_typed_client_error(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """An upstream 403 (the reported Sakana case) flows through
     ``litellm_error_response`` and is raised by the client as the typed
     ``PermissionDeniedError`` with the verbose message intact."""
@@ -173,7 +193,9 @@ async def test_upstream_403_surfaces_as_typed_client_error(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_upstream_403_streaming_fails_before_first_byte(client, monkeypatch):
+async def test_upstream_403_streaming_fails_before_first_byte(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With ``stream=True`` the upstream call is awaited before the SSE
     response is constructed, so a pre-stream failure surfaces as a real HTTP
     status the client raises on — not a 200 whose body carries an error frame."""
@@ -191,14 +213,16 @@ async def test_upstream_403_streaming_fails_before_first_byte(client, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_sdk_params_pass_through_but_reserved_keys_do_not(client, monkeypatch):
+async def test_sdk_params_pass_through_but_reserved_keys_do_not(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Body params we never enumerated (``seed``) reach litellm verbatim, while
     routing/credential keys smuggled via ``extra_body`` are dropped in favor of
     the resolved provider's own."""
     seen = {}
     orig = litellm.acompletion
 
-    async def spy(**kw):
+    async def spy(**kw: Any) -> object:
         seen.update(kw)
         kw["mock_response"] = "ok"
         return await orig(**kw)
@@ -217,7 +241,9 @@ async def test_sdk_params_pass_through_but_reserved_keys_do_not(client, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_custom_pricing_never_reaches_litellm(client, monkeypatch):
+async def test_custom_pricing_never_reaches_litellm(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The harm, not just the mechanism.
 
     ``input_cost_per_token``/``output_cost_per_token`` make litellm call
@@ -230,7 +256,7 @@ async def test_custom_pricing_never_reaches_litellm(client, monkeypatch):
     seen = {}
     orig = litellm.acompletion
 
-    async def spy(**kw):
+    async def spy(**kw: Any) -> object:
         seen.update(kw)
         kw["mock_response"] = "ok"
         return await orig(**kw)
@@ -259,13 +285,13 @@ async def test_custom_pricing_never_reaches_litellm(client, monkeypatch):
 )
 @pytest.mark.asyncio
 async def test_litellm_control_params_are_not_forwarded(
-    client, monkeypatch, key, value
-):
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch, key: str, value: object
+) -> None:
     """litellm accepts ~190 control kwargs; the tunnel forwards request params only."""
     seen = {}
     orig = litellm.acompletion
 
-    async def spy(**kw):
+    async def spy(**kw: Any) -> object:
         seen.update(kw)
         kw["mock_response"] = "ok"
         return await orig(**kw)
@@ -277,7 +303,7 @@ async def test_litellm_control_params_are_not_forwarded(
     assert key not in seen
 
 
-def test_the_reserved_key_set_has_not_drifted():
+def test_the_reserved_key_set_has_not_drifted() -> None:
     """``all_litellm_params`` and ``OPENAI_CHAT_COMPLETION_PARAMS`` are litellm
     internals: a version bump can move a key between them silently."""
     forwarded = {
@@ -316,12 +342,14 @@ def test_the_reserved_key_set_has_not_drifted():
 
 
 @pytest.mark.asyncio
-async def test_tool_calling_still_tunnels(client, monkeypatch):
+async def test_tool_calling_still_tunnels(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The reserved set must not cost the tunnel its actual job."""
     seen = {}
     orig = litellm.acompletion
 
-    async def spy(**kw):
+    async def spy(**kw: Any) -> object:
         seen.update(kw)
         kw["mock_response"] = "ok"
         return await orig(**kw)
@@ -346,7 +374,9 @@ async def test_tool_calling_still_tunnels(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_mid_stream_error_still_terminates_with_done(monkeypatch):
+async def test_a_mid_stream_error_still_terminates_with_done(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The status line is already 200 by then, so the error frame is all the client
     gets -- and without the sentinel a client looping until ``[DONE]`` hangs."""
     monkeypatch.setattr(views, "authenticate_request", _fake_auth)
@@ -356,13 +386,13 @@ async def test_a_mid_stream_error_still_terminates_with_done(monkeypatch):
     monkeypatch.setattr(views, "arecord_usage", _noop)
 
     class _Exploding:
-        def __init__(self):
+        def __init__(self) -> None:
             self.sent = False
 
-        def __aiter__(self):
+        def __aiter__(self) -> "_Exploding":
             return self
 
-        async def __anext__(self):
+        async def __anext__(self) -> types.SimpleNamespace:
             if self.sent:
                 raise RuntimeError("upstream died mid-stream")
             self.sent = True
@@ -373,7 +403,7 @@ async def test_a_mid_stream_error_still_terminates_with_done(monkeypatch):
                 }
             )
 
-    async def spy(**kw):
+    async def spy(**kw: Any) -> object:
         return _Exploding()
 
     monkeypatch.setattr(views.litellm, "acompletion", spy)
@@ -396,7 +426,9 @@ async def test_a_mid_stream_error_still_terminates_with_done(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_non_object_body_is_a_400_not_a_500(monkeypatch):
+async def test_a_non_object_body_is_a_400_not_a_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(views, "authenticate_request", _fake_auth)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver"
@@ -417,13 +449,15 @@ async def test_a_non_object_body_is_a_400_not_a_500(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_streamed_completions_ask_the_upstream_for_usage(client, monkeypatch):
+async def test_streamed_completions_ask_the_upstream_for_usage(
+    client: AsyncOpenAI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Without ``include_usage`` a streamed ``/v1/completions`` can only ever be
     counted with a tiktoken estimate, so cost budgets under-count it."""
     seen = {}
     orig = litellm.atext_completion
 
-    async def spy(**kw):
+    async def spy(**kw: Any) -> object:
         seen.update(kw)
         kw["mock_response"] = "hello"
         return await orig(**kw)

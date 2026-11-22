@@ -8,6 +8,8 @@ when no ``django.admin`` block is configured.
     python manage.py ensureadmin
 """
 
+from typing import Any
+
 from arkitekt_service.server.settings import AdminSettings
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -17,7 +19,7 @@ from django.core.management.base import BaseCommand
 class Command(BaseCommand):
     help = "Create or update the superuser declared under django.admin in the config."
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args: Any, **options: Any) -> None:
         raw = getattr(settings, "DJANGO_ADMIN", None)
         if not raw:
             self.stdout.write(

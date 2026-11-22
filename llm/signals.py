@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=Organization)
-def auto_configure_providers_for_org(sender, instance, created, **kwargs):
+def auto_configure_providers_for_org(
+    sender: type[Organization], instance: Organization, created: bool, **kwargs: object
+) -> None:
     """Provision providers from auto-config partners when an organization is created."""
     if not created:
         return

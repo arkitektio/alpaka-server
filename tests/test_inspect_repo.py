@@ -1,9 +1,14 @@
 import pytest
+from kante.context import HttpContext
+
+from tests.support import AExecute
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_room(aexecute, authenticated_context):
+async def test_create_room(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     assert authenticated_context.request.organization is not None, (
         "Organization should be set"
     )

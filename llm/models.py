@@ -1,4 +1,6 @@
 # api/models.py
+from typing import ClassVar
+
 from arkitekt_service.service.described import Described
 from authentikate.models import Client, Organization, User
 from django.contrib.postgres.indexes import GinIndex
@@ -48,10 +50,10 @@ class ProviderPartner(models.Model):
         default=dict,
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.identifier}"
 
-    def applies_to_user(self, user) -> bool:
+    def applies_to_user(self, user: User | None) -> bool:
         """Check whether this partner's filter conditions apply to the given user.
 
         If no ``filter_config`` is set, the partner applies to everyone. If it is
@@ -124,7 +126,7 @@ class Provider(Described):
         help_text="The partner this provider was auto-provisioned from, if any.",
     )
 
-    objects = OrganizationScopedManager()
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager()
     all_objects = models.Manager()
 
     class Meta:
@@ -185,7 +187,9 @@ class LLMModel(Described):
     output_modalities = models.JSONField(default=list, blank=True, null=True)
 
     # LLMModel reaches its organization through its provider.
-    objects = OrganizationScopedManager(field="provider__organization")
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager(
+        field="provider__organization"
+    )
     all_objects = models.Manager()
 
     class Meta:
@@ -200,19 +204,19 @@ class LLMModel(Described):
         ]
 
     @property
-    def is_available(self):
+    def is_available(self) -> bool:
         return True
 
     @property
-    def llm_string(self):
+    def llm_string(self) -> str:
         kind = getattr(self.provider.kind, "value", self.provider.kind)
         prefix = LITELLM_PREFIX_BY_KIND.get(kind, self.provider.name)
         return f"{prefix}/{self.model_id}"
 
-    def get_features(self):
+    def get_features(self) -> list[str]:
         return self.features or []
 
-    def has_feature(self, feature: FeatureType):
+    def has_feature(self, feature: FeatureType) -> bool:
         return feature in self.get_features()
 
     @property
@@ -246,7 +250,7 @@ class DefaultUse(models.Model):
         help_text="The organization this provider belongs to",
     )
 
-    objects = OrganizationScopedManager()
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager()
     all_objects = models.Manager()
 
     class Meta:
@@ -324,7 +328,7 @@ class UsageRecord(models.Model):
     error_type = models.CharField(max_length=128, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = OrganizationScopedManager()
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager()
     all_objects = models.Manager()
 
     class Meta:
@@ -340,7 +344,7 @@ class UsageRecord(models.Model):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.endpoint} {self.llm_string} {self.total_tokens} tokens"
 
 
@@ -395,12 +399,12 @@ class Budget(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = OrganizationScopedManager()
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager()
     all_objects = models.Manager()
 
     class Meta:
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Budget {self.pk} ({self.period})"

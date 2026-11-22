@@ -1,10 +1,11 @@
 import chromadb
+from chromadb.api import AsyncClientAPI
 from django.conf import settings
 
 # Direct Chroma client (used without Django)
 
 
-async def aget_client():
+async def aget_client() -> AsyncClientAPI:
     return await chromadb.AsyncHttpClient(
         host=settings.CHROMA_DB_HOST, port=settings.CHROMA_DB_PORT
     )

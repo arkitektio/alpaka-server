@@ -7,21 +7,25 @@ import pytest
 from asgiref.sync import sync_to_async
 from authentikate.models import Organization
 from channels.testing import WebsocketCommunicator
+from kante.context import HttpContext
 
 from kammer import consumers
 from kammer import models as kammer_models
+from tests.support import AExecute, WsContexts
 from tests.test_streaming import FINISH, START, history_count, load_message, subscribe
 
 APP = consumers.MessageStreamConsumer.as_asgi()
 
 
 @sync_to_async
-def make_room():
+def make_room() -> kammer_models.Room:
     org = Organization.objects.get(identifier="static_issuer#static_org")
     return kammer_models.Room.objects.for_write().create(title="ws", organization=org)
 
 
-async def connect(path="/kammer/stream/", token="test"):
+async def connect(
+    path: str = "/kammer/stream/", token: str | None = "test"
+) -> WebsocketCommunicator:
     """A connected, authenticated socket (auth frame unless the token is in the URL)."""
     communicator = WebsocketCommunicator(APP, path)
     connected, _ = await communicator.connect()
@@ -35,7 +39,9 @@ async def connect(path="/kammer/stream/", token="test"):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_frames_before_auth_are_refused(authenticated_context):
+async def test_frames_before_auth_are_refused(
+    authenticated_context: HttpContext,
+) -> None:
     communicator = await connect(token=None)
     await communicator.send_json_to({"type": "start", "room": "1", "agent_id": "x"})
     assert (await communicator.receive_json_from())["type"] == "error"
@@ -54,14 +60,18 @@ async def test_frames_before_auth_are_refused(authenticated_context):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_query_string_token_authenticates(authenticated_context):
+async def test_query_string_token_authenticates(
+    authenticated_context: HttpContext,
+) -> None:
     communicator = await connect(path="/kammer/stream/?token=test")
     await communicator.disconnect()
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_start_append_finish_over_socket(authenticated_context, monkeypatch):
+async def test_start_append_finish_over_socket(
+    authenticated_context: HttpContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(consumers, "FLUSH_INTERVAL_SECONDS", 0.02)
     room = await make_room()
     communicator = await connect()
@@ -104,8 +114,8 @@ async def test_start_append_finish_over_socket(authenticated_context, monkeypatc
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_large_buffer_flushes_immediately_and_finish_text_overrides(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     room = await make_room()
     communicator = await connect()
     await communicator.send_json_to(
@@ -130,7 +140,9 @@ async def test_large_buffer_flushes_immediately_and_finish_text_overrides(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_disconnect_finishes_open_message(authenticated_context, monkeypatch):
+async def test_disconnect_finishes_open_message(
+    authenticated_context: HttpContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(consumers, "FLUSH_INTERVAL_SECONDS", 5)
     room = await make_room()
     communicator = await connect()
@@ -152,12 +164,13 @@ async def test_disconnect_finishes_open_message(authenticated_context, monkeypat
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_socket_can_continue_a_message_started_over_graphql_but_not_someone_elses(
-    aexecute, authenticated_context
-):
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     room = await make_room()
     started = await aexecute(
         START, {"input": {"room": str(room.id), "agentId": "writer"}}
     )
+    assert started.data is not None
     message_id = int(started.data["startMessage"]["id"])
 
     mine = await connect(token="test")
@@ -171,6 +184,7 @@ async def test_socket_can_continue_a_message_started_over_graphql_but_not_someon
     started = await aexecute(
         START, {"input": {"room": str(room.id), "agentId": "writer"}}
     )
+    assert started.data is not None
     other_id = int(started.data["startMessage"]["id"])
     theirs = await connect(token="test2")  # same organization, different user
     await theirs.send_json_to(
@@ -184,7 +198,9 @@ async def test_socket_can_continue_a_message_started_over_graphql_but_not_someon
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_subscribers_see_socket_streamed_updates(ws_contexts, monkeypatch):
+async def test_subscribers_see_socket_streamed_updates(
+    ws_contexts: WsContexts, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(consumers, "FLUSH_INTERVAL_SECONDS", 0.02)
     room = await make_room()
     listener = await subscribe(await ws_contexts(), room, "listener")
@@ -229,8 +245,10 @@ async def test_subscribers_see_socket_streamed_updates(ws_contexts, monkeypatch)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_disconnect_flushes_but_does_not_finish_an_adopted_message(
-    aexecute, authenticated_context, monkeypatch
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A message opened with ``startMessage`` belongs to the caller that opened it.
 
     The socket writes to it, and a drop flushes what arrived -- but closing it here
@@ -240,6 +258,7 @@ async def test_disconnect_flushes_but_does_not_finish_an_adopted_message(
     started = await aexecute(
         START, {"input": {"room": str(room.id), "agentId": "writer"}}
     )
+    assert started.data is not None
     message_id = int(started.data["startMessage"]["id"])
 
     communicator = await connect()
@@ -260,8 +279,8 @@ async def test_disconnect_flushes_but_does_not_finish_an_adopted_message(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_failing_write_keeps_the_delta_and_retries_it(
-    authenticated_context, monkeypatch
-):
+    authenticated_context: HttpContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A delta whose write fails must survive to the next flush.
 
     ``append_delta`` is stubbed one layer *below* the code under test (the consumer's
@@ -270,7 +289,7 @@ async def test_a_failing_write_keeps_the_delta_and_retries_it(
     real_append = consumers.streaming.append_delta
     calls = {"n": 0}
 
-    def flaky(message_id, delta):
+    def flaky(message_id: int, delta: str) -> int:
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("database went away")
@@ -304,7 +323,9 @@ async def test_a_failing_write_keeps_the_delta_and_retries_it(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_malformed_frames_are_errors_not_disconnects(authenticated_context):
+async def test_malformed_frames_are_errors_not_disconnects(
+    authenticated_context: HttpContext,
+) -> None:
     """A bad frame is answered, never dropped: the socket may be streaming other
     messages successfully at the time."""
     room = await make_room()

@@ -8,10 +8,11 @@ drift from it.
 """
 
 import asyncio
+from typing import Any
 
 from authentikate.models import Organization
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from llm.enums import ProviderKind
 from llm.logic import arefresh_provider_models
@@ -23,7 +24,7 @@ class Command(BaseCommand):
         "Create an Ollama provider for an organization and inspect its installed models"
     )
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--organization",
             required=True,
@@ -44,7 +45,7 @@ class Command(BaseCommand):
             help="Delete and recreate the provider if it already exists",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         identifier = options["organization"]
         ollama_url = options["url"]
         provider_name = options["name"]
@@ -55,7 +56,7 @@ class Command(BaseCommand):
             known = list(Organization.objects.values_list("identifier", flat=True))
             raise CommandError(
                 f"No organization with identifier {identifier!r}. Known organizations: {known}"
-            )
+            ) from None
 
         self.stdout.write(
             f"Inspecting Ollama at {ollama_url} for organization {organization.identifier!r}"
@@ -91,7 +92,9 @@ class Command(BaseCommand):
             # refresh already uses the async ORM + aiohttp.
             models = asyncio.run(arefresh_provider_models(provider))
         except Exception as exc:
-            raise CommandError(f"Failed to refresh models from {ollama_url}: {exc}")
+            raise CommandError(
+                f"Failed to refresh models from {ollama_url}: {exc}"
+            ) from exc
 
         self.stdout.write(
             self.style.SUCCESS(

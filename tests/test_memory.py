@@ -19,6 +19,7 @@ from strawberry.http.temporal_response import TemporalResponse
 from strawberry.types.execution import ExecutionResult
 
 from memory import models
+from tests.support import BackendStack
 
 #: The organizations the static tokens act in, as authentikate names them.
 ORG = "static_issuer#static_org"
@@ -46,7 +47,7 @@ ASSIGNER = "{ assigner { sub } }"
 
 def task_token(rcb: str, org: str | None, act_sub: str = "1") -> str:
     """A task token as rekuest signs it for the static test app, assigned by ``rcb``."""
-    now = int(datetime.datetime.now().timestamp())
+    now = int(datetime.datetime.now(datetime.UTC).timestamp())
     claims = {
         "iss": "rekuest",
         "aud": ["alpaka"],
@@ -119,8 +120,8 @@ def _human(sub: str, organization: str) -> User:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_task_remembers_for_the_human_who_assigned_it_not_for_the_app(
-    backend_stack,
-):
+    backend_stack: BackendStack,
+) -> None:
     from asgiref.sync import sync_to_async
 
     await sync_to_async(_human)("ada", ORG)
@@ -128,6 +129,7 @@ async def test_a_task_remembers_for_the_human_who_assigned_it_not_for_the_app(
         REMEMBER, remembered("exports"), context(task=task_token("ada", ORG))
     )
     assert result.errors is None, result.errors
+    assert result.data is not None
     assert result.data["remember"]["kind"] == "FEEDBACK"
 
     owner = await sync_to_async(
@@ -142,15 +144,19 @@ async def test_a_task_remembers_for_the_human_who_assigned_it_not_for_the_app(
     # Another assigner's task, the same app: their memories, not Ada's.
     result = await run(MEMORIES, {}, context(task=task_token("grace", ORG)))
     assert result.errors is None, result.errors
+    assert result.data is not None
     assert result.data["memories"] == []
 
     result = await run(ASSIGNER, {}, context(task=task_token("ada", ORG)))
+    assert result.data is not None
     assert result.data["assigner"]["sub"] == "ada"
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_the_apps_own_login_reaches_no_memories(backend_stack):
+async def test_the_apps_own_login_reaches_no_memories(
+    backend_stack: BackendStack,
+) -> None:
     for document, variables in (
         (REMEMBER, remembered("exports")),
         (MEMORIES, {}),
@@ -164,7 +170,9 @@ async def test_the_apps_own_login_reaches_no_memories(backend_stack):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_task_of_another_organization_is_refused(backend_stack):
+async def test_a_task_of_another_organization_is_refused(
+    backend_stack: BackendStack,
+) -> None:
     # The app acts in static_org; the task runs in other_org.
     result = await run(MEMORIES, {}, context(task=task_token("ada", OTHER)))
     assert result.errors and "another organization" in result.errors[0].message, (
@@ -181,8 +189,8 @@ async def test_a_task_of_another_organization_is_refused(backend_stack):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_remembering_a_name_again_replaces_it_and_forgetting_deletes_it(
-    backend_stack,
-):
+    backend_stack: BackendStack,
+) -> None:
     ada = context(task=task_token("ada", ORG))
     await run(REMEMBER, remembered("exports"), ada)
     await run(
@@ -195,13 +203,16 @@ async def test_remembering_a_name_again_replaces_it_and_forgetting_deletes_it(
         MEMORIES, {"search": "zarr"}, context(task=task_token("ada", ORG))
     )
     assert result.errors is None, result.errors
+    assert result.data is not None
     assert [m["name"] for m in result.data["memories"]] == ["exports"]
 
     result = await run(
         FORGET, {"name": "exports"}, context(task=task_token("ada", ORG))
     )
+    assert result.data is not None
     assert result.data["forget"] is True
     result = await run(
         FORGET, {"name": "exports"}, context(task=task_token("ada", ORG))
     )
+    assert result.data is not None
     assert result.data["forget"] is False

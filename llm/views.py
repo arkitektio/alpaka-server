@@ -98,7 +98,7 @@ async def authenticate_request(
         return user, client, organization
     except Exception as e:
         logger.error(f"Authentication failed: {e}")
-        raise AuthenticationError(f"Authentication failed: {str(e)}")
+        raise AuthenticationError(f"Authentication failed: {str(e)}") from e
 
 
 def create_openai_error_response(
@@ -160,7 +160,7 @@ def litellm_error_response(
             error_type="api_error",
             status=out_status,
         )
-    logger.exception("Unexpected LLM error")
+    logger.error("Unexpected LLM error", exc_info=e)
     return create_openai_error_response(
         f"Internal server error{ctx}: {e}", error_type="api_error", status=500
     )
@@ -622,7 +622,7 @@ def _build_litellm_kwargs(
     *,
     handled: set,
     reserved: set | None = None,
-    **explicit,
+    **explicit: object,
 ) -> dict:
     """Assemble litellm kwargs: provider routing/credentials, the explicitly
     handled fields, and every remaining request-body key forwarded verbatim.
@@ -649,7 +649,7 @@ def _build_litellm_kwargs(
 StreamCallback = Callable[[list, BaseException | None], Awaitable[None]]
 
 
-async def _aclose_stream(response: Any) -> None:
+async def _aclose_stream(response: object) -> None:
     """Release the upstream connection an aborted SSE stream left open.
 
     Not ``contextlib.aclosing``: ``CustomStreamWrapper`` has ``aclose``, but the

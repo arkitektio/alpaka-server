@@ -6,12 +6,13 @@ superuser was silently never created."""
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from pytest_django.fixtures import SettingsWrapper
 
 User = get_user_model()
 
 
 @pytest.mark.django_db(transaction=True)
-def test_ensureadmin_creates_then_updates(settings):
+def test_ensureadmin_creates_then_updates(settings: SettingsWrapper) -> None:
     settings.DJANGO_ADMIN = {"username": "root", "password": "pw-1", "email": "r@x.io"}
     call_command("ensureadmin")
 
@@ -34,7 +35,7 @@ def test_ensureadmin_creates_then_updates(settings):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_ensureadmin_is_a_noop_without_config(settings):
+def test_ensureadmin_is_a_noop_without_config(settings: SettingsWrapper) -> None:
     settings.DJANGO_ADMIN = None
     call_command("ensureadmin")
     assert not User.objects.filter(is_superuser=True).exists()

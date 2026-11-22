@@ -27,7 +27,7 @@ ALIASES = {"jev-latest": "jev-1.13.0", "jev-1.13.0": "jev-1.13.0"}
 STATE: dict = {"fail": None, "log": []}
 
 
-def _unauthorized(request: web.Request):
+def _unauthorized(request: web.Request) -> web.Response | None:
     if request.headers.get("Authorization") != f"Bearer {API_KEY}":
         return web.json_response(
             {"error": "Invalid API key", "code": "UNAUTHORIZED"}, status=401

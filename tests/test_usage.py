@@ -8,7 +8,9 @@ are organization-scoped; a spent hard ``Budget`` blocks calls with a 429
 import asyncio
 import datetime as dt
 import importlib
+from collections.abc import AsyncIterator, Awaitable, Callable
 from decimal import Decimal
+from typing import Any, Never, TypeAlias, TypedDict
 
 import httpx
 import litellm
@@ -18,6 +20,8 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from authentikate.models import Organization, User
 from django.core.asgi import get_asgi_application
+from django.http import HttpRequest
+from kante.context import HttpContext
 from openai import AsyncOpenAI
 
 import llm.views as views
@@ -25,22 +29,34 @@ import vector.embedding as vector_embedding
 from llm import models as llm_models
 from llm.enums import BudgetPeriod
 from llm.usage import UsageFacts, arecord_usage, period_end, period_start
+from tests.support import AExecute
 
 ASGI_APP = get_asgi_application()
 # The package re-exports the ``chat`` resolver under the submodule's name, so
 # attribute access would yield the function; import the module explicitly.
 chat_mutation = importlib.import_module("llm.graphql.mutations.chat")
 
-from tests.test_openai_compat import _mock_litellm  # noqa: E402
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
+class Seeded(TypedDict):
+    """What ``seed`` made: a provider in the organization, with a chat and an embedding model."""
+
+    org: Organization
+    provider: llm_models.Provider
+    chat: llm_models.LLMModel
+    embed: llm_models.LLMModel
+
+
+#: The ``rest`` fixture: an OpenAI client against the app, and what it was seeded with.
+Rest: TypeAlias = tuple[AsyncOpenAI, Seeded]
+
+
 @sync_to_async
-def seed(org="static_org"):
-    org = Organization.objects.get(identifier=f"static_issuer#{org}")
+def seed(name: str = "static_org") -> Seeded:
+    org = Organization.objects.get(identifier=f"static_issuer#{name}")
     provider = llm_models.Provider.objects.for_write().create(
         name="OpenAI",
         organization=org,
@@ -64,21 +80,21 @@ def seed(org="static_org"):
 
 
 @sync_to_async
-def records(org):
+def records(org: Organization) -> list[llm_models.UsageRecord]:
     return list(llm_models.UsageRecord.objects.for_organization(org).order_by("id"))
 
 
 @sync_to_async
 def make_record(
-    org,
+    org: Organization,
     *,
-    user=None,
-    model=None,
-    total_tokens=10,
-    cost=None,
-    endpoint="rest_chat",
-    created_at=None,
-):
+    user: User | None = None,
+    model: llm_models.LLMModel | None = None,
+    total_tokens: int = 10,
+    cost: Decimal | None = None,
+    endpoint: str = "rest_chat",
+    created_at: dt.datetime | None = None,
+) -> llm_models.UsageRecord:
     record = llm_models.UsageRecord.objects.for_write().create(
         organization=org,
         user=user,
@@ -98,11 +114,13 @@ def make_record(
 
 
 @sync_to_async
-def make_budget(org, **kwargs):
+def make_budget(org: Organization, **kwargs: Any) -> llm_models.Budget:
     return llm_models.Budget.objects.for_write().create(organization=org, **kwargs)
 
 
-def _mock_litellm(monkeypatch, *, error=None):
+def _mock_litellm(
+    monkeypatch: pytest.MonkeyPatch, *, error: BaseException | None = None
+) -> None:
     """Route the views' litellm calls through ``mock_response``."""
     orig_ac, orig_at, orig_ae = (
         litellm.acompletion,
@@ -110,8 +128,10 @@ def _mock_litellm(monkeypatch, *, error=None):
         litellm.aembedding,
     )
 
-    def wrap(orig, mock_value):
-        async def inner(**kw):
+    def wrap(
+        orig: Callable[..., Awaitable[object]], mock_value: object
+    ) -> Callable[..., Awaitable[object]]:
+        async def inner(**kw: Any) -> object:
             if error is not None:
                 raise error
             kw["mock_response"] = mock_value
@@ -129,16 +149,18 @@ def _mock_litellm(monkeypatch, *, error=None):
 
 
 @pytest_asyncio.fixture
-async def rest(authenticated_context, monkeypatch):
+async def rest(
+    authenticated_context: HttpContext, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[Rest]:
     """An OpenAI client against the in-process app, authenticated as the real
     seeded user/org, with model lookup returning the real seeded model."""
     data = await seed()
     request = authenticated_context.request
 
-    async def fake_auth(http_request):
+    async def fake_auth(http_request: HttpRequest) -> tuple[object, object, object]:
         return request.user, request.client, request.organization
 
-    async def fake_lookup(*args, **kwargs):
+    async def fake_lookup(*args: Any, **kwargs: Any) -> llm_models.LLMModel:
         return data["chat"]
 
     monkeypatch.setattr(views, "authenticate_request", fake_auth)
@@ -162,7 +184,9 @@ async def rest(authenticated_context, monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_rest_chat_records_usage(rest, monkeypatch):
+async def test_rest_chat_records_usage(
+    rest: Rest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, data = rest
     _mock_litellm(monkeypatch)
 
@@ -185,7 +209,9 @@ async def test_rest_chat_records_usage(rest, monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_rest_chat_streaming_records_usage_after_stream(rest, monkeypatch):
+async def test_rest_chat_streaming_records_usage_after_stream(
+    rest: Rest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, data = rest
     _mock_litellm(monkeypatch)
 
@@ -207,7 +233,9 @@ async def test_rest_chat_streaming_records_usage_after_stream(rest, monkeypatch)
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_rest_completion_and_embedding_record_usage(rest, monkeypatch):
+async def test_rest_completion_and_embedding_record_usage(
+    rest: Rest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, data = rest
     _mock_litellm(monkeypatch)
 
@@ -229,7 +257,9 @@ async def test_rest_completion_and_embedding_record_usage(rest, monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_rest_error_records_error_row(rest, monkeypatch):
+async def test_rest_error_records_error_row(
+    rest: Rest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, data = rest
     _mock_litellm(
         monkeypatch,
@@ -251,11 +281,13 @@ async def test_rest_error_records_error_row(rest, monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_graphql_chat_records_usage(aexecute, monkeypatch):
+async def test_graphql_chat_records_usage(
+    aexecute: AExecute, monkeypatch: pytest.MonkeyPatch
+) -> None:
     data = await seed()
     orig = litellm.completion
 
-    def fake_completion(**kw):
+    def fake_completion(**kw: Any) -> object:
         kw["mock_response"] = "hi there"
         return orig(**kw)
 
@@ -282,11 +314,13 @@ async def test_graphql_chat_records_usage(aexecute, monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_vector_embedding_records_usage(authenticated_context, monkeypatch):
+async def test_vector_embedding_records_usage(
+    authenticated_context: HttpContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
     data = await seed()
     orig = litellm.aembedding
 
-    async def fake_embedding(*args, **kw):
+    async def fake_embedding(*args: Any, **kw: Any) -> object:
         kw["mock_response"] = [[0.1, 0.2]]
         return await orig(*args, **kw)
 
@@ -321,8 +355,10 @@ async def test_vector_embedding_records_usage(authenticated_context, monkeypatch
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_usage_records_and_stats_are_scoped_to_the_organization(
-    aexecute, authenticated_context, other_org_context
-):
+    aexecute: AExecute,
+    authenticated_context: HttpContext,
+    other_org_context: HttpContext,
+) -> None:
     data = await seed()
     other_org = other_org_context.request.organization
     await make_record(data["org"], total_tokens=10, cost=Decimal("0.5"))
@@ -352,7 +388,9 @@ async def test_usage_records_and_stats_are_scoped_to_the_organization(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_usage_records_filters_and_series(aexecute, authenticated_context):
+async def test_usage_records_filters_and_series(
+    aexecute: AExecute, authenticated_context: HttpContext
+) -> None:
     data = await seed()
     user = authenticated_context.request.user
     yesterday = dt.datetime.now(dt.UTC) - dt.timedelta(days=1)
@@ -372,11 +410,10 @@ async def test_usage_records_filters_and_series(aexecute, authenticated_context)
         query($f: UsageRecordFilter, $since: DateTime!) {
             byEndpoint: usageRecords(filters: $f) { totalTokens }
             recent: usageRecords(filters: { createdAfter: $since }) { totalTokens }
-            byModel: usageRecords(filters: { model: "%s" }) { totalTokens }
+            byModel: usageRecords(filters: { model: "{model}" }) { totalTokens }
             usageStats { series(field: TOTAL_TOKENS, timestampField: CREATED_AT, by: DAY) { sum count } }
         }
-        """
-        % data["chat"].id,
+        """.replace("{model}", str(data["chat"].id)),
         {
             "f": {"endpoints": ["REST_EMBEDDING"]},
             "since": (yesterday + dt.timedelta(hours=1)).isoformat(),
@@ -396,7 +433,9 @@ async def test_usage_records_filters_and_series(aexecute, authenticated_context)
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_budget_crud_and_status(aexecute, other_org_context):
+async def test_budget_crud_and_status(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     data = await seed()
     await make_record(data["org"], total_tokens=40, cost=Decimal("0.25"))
 
@@ -461,14 +500,16 @@ async def test_budget_crud_and_status(aexecute, other_org_context):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_hard_budget_blocks_rest_with_429_and_no_upstream_call(rest, monkeypatch):
+async def test_hard_budget_blocks_rest_with_429_and_no_upstream_call(
+    rest: Rest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, data = rest
     await make_record(data["org"], total_tokens=50)
     await make_budget(data["org"], period="month", limit_tokens=50, hard=True)
 
     calls = []
 
-    async def spy(**kw):
+    async def spy(**kw: Any) -> Never:
         calls.append(kw)
         raise AssertionError("upstream must not be called")
 
@@ -488,7 +529,9 @@ async def test_hard_budget_blocks_rest_with_429_and_no_upstream_call(rest, monke
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_hard_budget_blocks_graphql_chat(aexecute, monkeypatch):
+async def test_hard_budget_blocks_graphql_chat(
+    aexecute: AExecute, monkeypatch: pytest.MonkeyPatch
+) -> None:
     data = await seed()
     await make_record(data["org"], total_tokens=5, cost=Decimal("2"))
     await make_budget(data["org"], period="day", limit_cost=Decimal("1"), hard=True)
@@ -513,7 +556,9 @@ async def test_hard_budget_blocks_graphql_chat(aexecute, monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_soft_and_non_applicable_budgets_do_not_block(rest, monkeypatch):
+async def test_soft_and_non_applicable_budgets_do_not_block(
+    rest: Rest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, data = rest
     _mock_litellm(monkeypatch)
     other_user = await sync_to_async(User.objects.create)(
@@ -538,7 +583,9 @@ async def test_soft_and_non_applicable_budgets_do_not_block(rest, monkeypatch):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_budget_only_counts_the_current_period(rest, monkeypatch):
+async def test_budget_only_counts_the_current_period(
+    rest: Rest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, data = rest
     _mock_litellm(monkeypatch)
     last_month = dt.datetime.now(dt.UTC) - dt.timedelta(days=40)
@@ -551,7 +598,7 @@ async def test_budget_only_counts_the_current_period(rest, monkeypatch):
     assert resp.choices[0].message.content == "Hello world from mock"
 
 
-def test_period_boundaries():
+def test_period_boundaries() -> None:
     now = dt.datetime(2026, 9, 10, 15, 30, tzinfo=dt.UTC)  # a Thursday
     assert period_start(BudgetPeriod.DAY, now) == dt.datetime(
         2026, 9, 10, tzinfo=dt.UTC
@@ -598,10 +645,10 @@ class _StubStream:
         self.first_chunk_sent = asyncio.Event()
         self.closed = False
 
-    def __aiter__(self):
+    def __aiter__(self) -> "_StubStream":
         return self
 
-    async def __anext__(self):
+    async def __anext__(self) -> _StubChunk | None:
         if not self.first_chunk_sent.is_set():
             self.first_chunk_sent.set()
             return _StubChunk("hello")
@@ -614,8 +661,8 @@ class _StubStream:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_client_that_hangs_up_records_usage_as_aborted_and_closes_the_upstream(
-    authenticated_context,
-):
+    authenticated_context: HttpContext,
+) -> None:
     """A user-cancelled stream is not a provider failure.
 
     It used to be recorded as ``status=error, error_type=GeneratorExit``, which made
@@ -625,7 +672,7 @@ async def test_a_client_that_hangs_up_records_usage_as_aborted_and_closes_the_up
     stream = _StubStream()
     recorded = asyncio.Event()
 
-    async def on_complete(chunks, error):
+    async def on_complete(chunks: list[object], error: BaseException | None) -> None:
         # A thread hop, like the real callback's sync_to_async: this is the await
         # that used to re-raise the cancellation.
         await arecord_usage(
@@ -642,7 +689,7 @@ async def test_a_client_that_hangs_up_records_usage_as_aborted_and_closes_the_up
     # What Django does when the client hangs up: it cancels the task driving the
     # response (django/core/handlers/asgi.py), which lands as a CancelledError
     # inside the view's generator while it waits on the upstream.
-    async def consume():
+    async def consume() -> None:
         async for _ in response.streaming_content:
             pass
 
@@ -665,7 +712,9 @@ async def test_a_client_that_hangs_up_records_usage_as_aborted_and_closes_the_up
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_an_upstream_failure_is_still_recorded_as_an_error(rest, monkeypatch):
+async def test_an_upstream_failure_is_still_recorded_as_an_error(
+    rest: Rest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The negative control for the classifier above."""
     client, data = rest
     _mock_litellm(

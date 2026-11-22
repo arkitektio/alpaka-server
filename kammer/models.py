@@ -1,8 +1,10 @@
+from typing import ClassVar
+
 from arkitekt_service.service.described import Described
 from authentikate.models import Client, Organization, User
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
-from django.db.models import F, Max
+from django.db.models import F, Max, QuerySet
 from django.db.models.functions import Coalesce
 from koherent.fields import ProvenanceField
 
@@ -51,7 +53,7 @@ class Room(EmbeddedDescriptionMixin, Described):
     )
     contextual_structures = models.ManyToManyField(Structure)
 
-    objects = OrganizationScopedManager()
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager()
     all_objects = models.Manager()
 
     class Meta:
@@ -68,13 +70,13 @@ class Room(EmbeddedDescriptionMixin, Described):
         ]
 
     @property
-    def messages(self):
+    def messages(self) -> "QuerySet[Message]":
         # Message.room is the direct FK; agent__room is the same room by
         # construction (see kammer.graphql.mutations.send) but goes through a join.
         return Message.objects.for_write().filter(room=self).all()
 
     @property
-    def streamlit_room_id(self):
+    def streamlit_room_id(self) -> str:
         return f"lok-room-{self.id}"
 
 
@@ -95,7 +97,9 @@ class Agent(models.Model):
     )
 
     # An agent belongs to the organization that owns its room.
-    objects = OrganizationScopedManager(field="room__organization")
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager(
+        field="room__organization"
+    )
     all_objects = models.Manager()
 
     class Meta:
@@ -149,7 +153,9 @@ class Message(Described):
     provenance = ProvenanceField()
 
     # A message belongs to the organization that owns its room.
-    objects = OrganizationScopedManager(field="room__organization")
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager(
+        field="room__organization"
+    )
     all_objects = models.Manager()
 
     class Meta:

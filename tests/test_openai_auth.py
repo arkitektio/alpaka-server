@@ -18,6 +18,8 @@ import httpx
 import pytest
 from django.core.asgi import get_asgi_application
 
+from tests.support import BackendStack
+
 ASGI_APP = get_asgi_application()
 
 pytestmark = pytest.mark.filterwarnings(
@@ -26,14 +28,16 @@ pytestmark = pytest.mark.filterwarnings(
 
 
 @pytest.fixture
-def http_client():
+def http_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver"
     )
 
 
 @pytest.mark.asyncio
-async def test_missing_header_is_401_with_early_return_message(http_client):
+async def test_missing_header_is_401_with_early_return_message(
+    http_client: httpx.AsyncClient,
+) -> None:
     resp = await http_client.get("/llm/v1/models")
     assert resp.status_code == 401
     assert "Missing or invalid authentication token" in resp.json()["error"]["message"]
@@ -41,7 +45,7 @@ async def test_missing_header_is_401_with_early_return_message(http_client):
 
 
 @pytest.mark.asyncio
-async def test_garbage_bearer_is_401(http_client):
+async def test_garbage_bearer_is_401(http_client: httpx.AsyncClient) -> None:
     resp = await http_client.get(
         "/llm/v1/models", headers={"Authorization": "Bearer not-a-jwt"}
     )
@@ -49,7 +53,9 @@ async def test_garbage_bearer_is_401(http_client):
 
 
 @pytest.mark.asyncio
-async def test_chat_completions_without_auth_is_401(http_client):
+async def test_chat_completions_without_auth_is_401(
+    http_client: httpx.AsyncClient,
+) -> None:
     resp = await http_client.post(
         "/llm/v1/chat/completions",
         json={"model": "x", "messages": [{"role": "user", "content": "hi"}]},
@@ -59,7 +65,9 @@ async def test_chat_completions_without_auth_is_401(http_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_static_token_authenticates_models_endpoint(http_client, backend_stack):
+async def test_static_token_authenticates_models_endpoint(
+    http_client: httpx.AsyncClient, backend_stack: BackendStack
+) -> None:
     """The settings_test static token ``test`` traverses the real header parse,
     token validation and DB expansion, and reaches the endpoint proper."""
     resp = await http_client.get(

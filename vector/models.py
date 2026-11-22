@@ -1,4 +1,6 @@
 # api/models.py
+from typing import ClassVar
+
 from arkitekt_service.service.described import Described
 from authentikate.models import Organization, User
 from django.contrib.postgres.indexes import GinIndex
@@ -33,7 +35,7 @@ class ChromaCollection(EmbeddedDescriptionMixin, Described):
         help_text="The organization this collection belongs to",
     )
 
-    objects = OrganizationScopedManager()
+    objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager()
     all_objects = models.Manager()
 
     class Meta:
@@ -50,7 +52,7 @@ class ChromaCollection(EmbeddedDescriptionMixin, Described):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
     @property

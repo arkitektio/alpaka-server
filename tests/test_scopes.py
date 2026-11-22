@@ -9,6 +9,7 @@ from strawberry.http.temporal_response import TemporalResponse
 from strawberry.types import ExecutionResult
 
 from alpaka_server.schema import schema
+from tests.support import BackendStack
 
 CREATE_ROOM = 'mutation { createRoom(input: {title: "scoped"}) { id } }'
 ROOMS = "query { rooms { id } }"
@@ -27,13 +28,15 @@ def _reason(result: ExecutionResult) -> str | None:
     return result.errors[0].extensions.get("reason") if result.errors else None
 
 
-def test_every_root_field_asks_for_a_scope_alpaka_declares():
+def test_every_root_field_asks_for_a_scope_alpaka_declares() -> None:
     assert scope_gaps(schema) == []
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_an_app_granted_reads_reads_and_writes_nothing(backend_stack):
+async def test_an_app_granted_reads_reads_and_writes_nothing(
+    backend_stack: BackendStack,
+) -> None:
     assert (await schema.execute(ROOMS, context_value=_as("readertest"))).errors is None
     refused = await schema.execute(CREATE_ROOM, context_value=_as("readertest"))
     assert _reason(refused) == "INSUFFICIENT_SCOPE"
@@ -41,6 +44,6 @@ async def test_an_app_granted_reads_reads_and_writes_nothing(backend_stack):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_the_all_scope_writes(backend_stack):
+async def test_the_all_scope_writes(backend_stack: BackendStack) -> None:
     made = await schema.execute(CREATE_ROOM, context_value=_as("test"))
     assert made.errors is None, made.errors

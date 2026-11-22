@@ -11,8 +11,6 @@ anything conventionally named, and it never mistakes a legitimate setting for a
 secret the way entropy heuristics do.
 """
 
-from typing import Any
-
 REDACTED = "**********"
 
 #: Substrings that mark a key as credential-bearing. Matched case-insensitively
@@ -38,7 +36,7 @@ def _is_secret_key(key: str) -> bool:
     return any(marker in normalized for marker in SECRET_KEY_MARKERS)
 
 
-def redact_config(config: Any) -> Any:
+def redact_config(config: object) -> object:
     """Return ``config`` with the value of every secret-looking key masked.
 
     Recurses through nested mappings and lists so a credential nested under

@@ -4,6 +4,8 @@ It used to create the provider without the mandatory ``organization`` FK and
 re-implemented model discovery; now it requires ``--organization`` and delegates
 to ``llm.logic.arefresh_provider_models``."""
 
+from typing import Never
+
 import pytest
 from authentikate.models import Organization
 from django.core.management import CommandError, call_command
@@ -13,11 +15,13 @@ from llm.management.commands import inspectollama
 
 
 @pytest.mark.django_db(transaction=True)
-def test_inspectollama_creates_provider_for_organization(monkeypatch):
+def test_inspectollama_creates_provider_for_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     org = Organization.objects.create(identifier="static_issuer#cmd_org")
     seen = {}
 
-    async def fake_refresh(provider):
+    async def fake_refresh(provider: llm_models.Provider) -> list[llm_models.LLMModel]:
         seen["provider"] = provider
         return []
 
@@ -47,17 +51,19 @@ def test_inspectollama_creates_provider_for_organization(monkeypatch):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_inspectollama_requires_known_organization():
+def test_inspectollama_requires_known_organization() -> None:
     Organization.objects.create(identifier="static_issuer#exists")
     with pytest.raises(CommandError, match="No organization with identifier 'nope'"):
         call_command("inspectollama", organization="nope")
 
 
 @pytest.mark.django_db(transaction=True)
-def test_inspectollama_refresh_failure_is_a_command_error(monkeypatch):
+def test_inspectollama_refresh_failure_is_a_command_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     Organization.objects.create(identifier="static_issuer#cmd_org")
 
-    async def failing_refresh(provider):
+    async def failing_refresh(provider: llm_models.Provider) -> Never:
         raise RuntimeError("connection refused")
 
     monkeypatch.setattr(inspectollama, "arefresh_provider_models", failing_refresh)

@@ -9,14 +9,17 @@ it as ``other_org``, which must never see it — the previous resolvers did bare
 import pytest
 from asgiref.sync import sync_to_async
 from authentikate.models import Client, Organization, User
+from django.db.models import Model
+from kante.context import HttpContext
 
 from kammer import models as kammer_models
 from llm import models as llm_models
+from tests.support import AExecute
 from vector import models as vector_models
 
 
 @sync_to_async
-def seed_static_org():
+def seed_static_org() -> dict[str, Model]:
     """Create one room, provider, model and collection owned by ``static_org``."""
     org = Organization.objects.get(identifier="static_issuer#static_org")
     user = User.objects.get(sub="1", iss="static_issuer")
@@ -72,8 +75,8 @@ def seed_static_org():
     ],
 )
 async def test_list_fields_do_not_span_organizations(
-    aexecute, other_org_context, field, query
-):
+    aexecute: AExecute, other_org_context: HttpContext, field: str, query: str
+) -> None:
     """A list field returns the caller's organization's rows and nothing else."""
     await seed_static_org()
 
@@ -105,8 +108,12 @@ async def test_list_fields_do_not_span_organizations(
     ],
 )
 async def test_singular_fetches_refuse_other_organizations(
-    aexecute, other_org_context, key, field, query
-):
+    aexecute: AExecute,
+    other_org_context: HttpContext,
+    key: str,
+    field: str,
+    query: str,
+) -> None:
     """Fetching another organization's row by ID fails instead of returning it."""
     seeded = await seed_static_org()
     variables = {"id": str(seeded[key].id)}
@@ -124,7 +131,9 @@ async def test_singular_fetches_refuse_other_organizations(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delete_room_refuses_other_organizations(aexecute, other_org_context):
+async def test_delete_room_refuses_other_organizations(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """A room cannot be deleted from outside its organization."""
     seeded = await seed_static_org()
     query = "mutation($input: DeleteRoomInput!) { deleteRoom(input: $input) }"
@@ -139,7 +148,9 @@ async def test_delete_room_refuses_other_organizations(aexecute, other_org_conte
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_delete_provider_refuses_other_organizations(aexecute, other_org_context):
+async def test_delete_provider_refuses_other_organizations(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """A provider cannot be deleted from outside its organization."""
     seeded = await seed_static_org()
     query = "mutation($input: DeleteProviderInput!) { deleteProvider(input: $input) }"
@@ -156,7 +167,9 @@ async def test_delete_provider_refuses_other_organizations(aexecute, other_org_c
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_send_refuses_another_organizations_room(aexecute, other_org_context):
+async def test_send_refuses_another_organizations_room(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """A message cannot be posted into another organization's room."""
     seeded = await seed_static_org()
     query = "mutation($input: SendMessageInput!) { send(input: $input) { id } }"
@@ -185,7 +198,7 @@ async def test_send_refuses_another_organizations_room(aexecute, other_org_conte
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_provider_api_key_is_not_exposed(aexecute):
+async def test_provider_api_key_is_not_exposed(aexecute: AExecute) -> None:
     """The Provider type has no field that returns the raw credential."""
     from alpaka_server.schema import schema
 
@@ -206,7 +219,9 @@ async def test_provider_api_key_is_not_exposed(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_room_stats_is_scoped(aexecute, other_org_context):
+async def test_room_stats_is_scoped(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """``roomStats`` counts only the caller's organization's rooms."""
     await seed_static_org()
     query = "{ roomStats { count } }"
@@ -222,7 +237,9 @@ async def test_room_stats_is_scoped(aexecute, other_org_context):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_messages_do_not_span_organizations(aexecute, other_org_context):
+async def test_messages_do_not_span_organizations(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """``messages`` returns only messages in the caller's organization's rooms."""
     await seed_static_org()
     query = "{ messages { id text } }"
@@ -238,7 +255,9 @@ async def test_messages_do_not_span_organizations(aexecute, other_org_context):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_message_by_id_refuses_other_organizations(aexecute, other_org_context):
+async def test_message_by_id_refuses_other_organizations(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """A message cannot be fetched by ID from outside its organization."""
     seeded = await seed_static_org()
     query = "query($id: ID!) { message(id: $id) { id } }"
@@ -255,7 +274,9 @@ async def test_message_by_id_refuses_other_organizations(aexecute, other_org_con
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_provider_does_not_persist_the_redaction_mask(aexecute):
+async def test_update_provider_does_not_persist_the_redaction_mask(
+    aexecute: AExecute,
+) -> None:
     """Writing a config read back from the API keeps the live credential."""
     seeded = await seed_static_org()
 
@@ -280,7 +301,9 @@ async def test_update_provider_does_not_persist_the_redaction_mask(aexecute):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_provider_refuses_other_organizations(aexecute, other_org_context):
+async def test_update_provider_refuses_other_organizations(
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """A provider cannot be updated from outside its organization."""
     seeded = await seed_static_org()
 
@@ -297,7 +320,7 @@ async def test_update_provider_refuses_other_organizations(aexecute, other_org_c
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_list_pagination_applies(aexecute):
+async def test_list_pagination_applies(aexecute: AExecute) -> None:
     """``pagination`` is honoured by the hand-rolled list resolvers."""
     org = await sync_to_async(Organization.objects.get)(
         identifier="static_issuer#static_org"
@@ -330,8 +353,8 @@ async def test_list_pagination_applies(aexecute):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_federation_entities_do_not_leak_across_organizations(
-    aexecute, other_org_context
-):
+    aexecute: AExecute, other_org_context: HttpContext
+) -> None:
     """``_entities`` must not resolve another organization's row.
 
     Federated types carry ``@key(fields: "id")``, and ``_entities`` resolves by
@@ -371,7 +394,7 @@ async def test_federation_entities_do_not_leak_across_organizations(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_room_lists_its_agents(aexecute):
+async def test_room_lists_its_agents(aexecute: AExecute) -> None:
     """``Room.agents`` resolves through the reverse FK (regression: ``agent_set`` mismatch)."""
     seeded = await seed_static_org()
     query = "query($id: ID!) { room(id: $id) { id agents { id room { id } } } }"

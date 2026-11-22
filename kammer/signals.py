@@ -18,7 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=models.Message)
-def message_signal(sender, instance=None, created=False, **kwargs):
+def message_signal(
+    sender: type[models.Message],
+    instance: models.Message | None = None,
+    created: bool = False,
+    **kwargs: object,
+) -> None:
     """Publish a message onto its room's channel when it is first written."""
     if not instance or not created:
         return

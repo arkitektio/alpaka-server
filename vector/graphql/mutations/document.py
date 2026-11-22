@@ -3,6 +3,7 @@
 import uuid
 from typing import Any
 
+from authentikate.models import Client, User
 from kante.types import Info
 
 from llm.models import LLMModel
@@ -14,8 +15,8 @@ async def _prepare(
     documents: list[inputs.DocumentInput],
     embedder: LLMModel,
     *,
-    user: Any = None,
-    client: Any = None,
+    user: User | None = None,
+    client: Client | None = None,
 ) -> dict[str, Any]:
     """Embed the documents and shape them into the payload Chroma expects."""
     contents = [document.content for document in documents]
@@ -74,6 +75,6 @@ async def add_documents_to_collection(
     return [
         types.Document(id=id_, content=content, _metadata=metadata, distance=None)
         for id_, content, metadata in zip(
-            payload["ids"], payload["documents"], payload["metadatas"]
+            payload["ids"], payload["documents"], payload["metadatas"], strict=True
         )
     ]
