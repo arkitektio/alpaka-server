@@ -32,7 +32,9 @@ DESCRIPTORS_DESCRIPTION = (
 
 def resolve_descriptors(root) -> JSON:  # noqa: ANN001 - the model instance behind any hosted type
     """The descriptors of a hosted object, as they are stored on it (``alpaka_server.service``)."""
-    from alpaka_server.service import service  # the declaration imports the apps' models
+    from alpaka_server.service import (
+        service,  # the declaration imports the apps' models
+    )
 
     return service.describe(root)
 
@@ -48,7 +50,9 @@ def _kind(provider: llm_models.Provider) -> str:
 def room_descriptors(room: kammer_models.Room) -> Descriptors:
     """A room's descriptors: what it is about, and how many agents take part in it."""
     return {
-        "@alpaka/contextual_structures": sorted(set(room.contextual_structures.values_list("identifier", flat=True))),
+        "@alpaka/contextual_structures": sorted(
+            set(room.contextual_structures.values_list("identifier", flat=True))
+        ),
         "@alpaka/n_agents": room.agents.count(),
     }
 
@@ -58,7 +62,9 @@ def message_descriptors(message: kammer_models.Message) -> Descriptors:
     return {
         "@alpaka/from_agent": message.agent_id is not None,
         "@alpaka/is_reply": message.is_reply_to_id is not None,
-        "@alpaka/attached_structures": sorted(set(message.attached_structures.values_list("identifier", flat=True))),
+        "@alpaka/attached_structures": sorted(
+            set(message.attached_structures.values_list("identifier", flat=True))
+        ),
     }
 
 
@@ -85,7 +91,9 @@ def collection_descriptors(collection: vector_models.ChromaCollection) -> Descri
 # --- a port's requires, as a list filter ---------------------------------------------------
 
 
-@strawberry.enum(description="How a descriptor constraint compares the object's value with the stated one. The operators a rekuest port's `requires` and `provides` are written in, with the same meaning.")
+@strawberry.enum(
+    description="How a descriptor constraint compares the object's value with the stated one. The operators a rekuest port's `requires` and `provides` are written in, with the same meaning."
+)
 class DescriptorOperator(str, Enum):
     """The comparison of one constraint."""
 
@@ -109,9 +117,16 @@ class DescriptorOperator(str, Enum):
 class DescriptorConstraintInput:
     """One ``{key, operator, value}`` constraint."""
 
-    key: str = strawberry.field(description="The descriptor key, e.g. `@alpaka/provider_kind`")
-    operator: DescriptorOperator = strawberry.field(description="How the object's value is compared with `value`. MATCHES is equality, as EQUALS is")
-    value: JSON | None = strawberry.field(default=None, description="The value compared against: a number for GTE and LTE, a list for IN and NOT_IN, true or false for EXISTS, the member looked for with CONTAINS")
+    key: str = strawberry.field(
+        description="The descriptor key, e.g. `@alpaka/provider_kind`"
+    )
+    operator: DescriptorOperator = strawberry.field(
+        description="How the object's value is compared with `value`. MATCHES is equality, as EQUALS is"
+    )
+    value: JSON | None = strawberry.field(
+        default=None,
+        description="The value compared against: a number for GTE and LTE, a list for IN and NOT_IN, true or false for EXISTS, the member looked for with CONTAINS",
+    )
 
 
 REQUIRES_DESCRIPTION = (
@@ -122,6 +137,8 @@ REQUIRES_DESCRIPTION = (
 
 def requires(model: type, value: list[DescriptorConstraintInput], prefix: str) -> Q:
     """A port's ``requires`` on the stored descriptors of ``model``'s rows."""
-    from alpaka_server.service import service  # it imports the models this module describes
+    from alpaka_server.service import (
+        service,  # it imports the models this module describes
+    )
 
     return service.requires(model, value, prefix)

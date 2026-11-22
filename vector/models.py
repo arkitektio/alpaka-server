@@ -1,10 +1,11 @@
 # api/models.py
-from alpaka_server.scoping import OrganizationScopedManager
 from arkitekt_service.service.described import Described
+from authentikate.models import Organization, User
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+
+from alpaka_server.scoping import OrganizationScopedManager
 from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
-from authentikate.models import User, Organization
 
 
 class ChromaCollection(EmbeddedDescriptionMixin, Described):
@@ -14,13 +15,18 @@ class ChromaCollection(EmbeddedDescriptionMixin, Described):
     this row's vector describes the collection itself.
     """
 
-    name = models.CharField(max_length=100, help_text="The human-readable name of the collection, unique within its organization")
+    name = models.CharField(
+        max_length=100,
+        help_text="The human-readable name of the collection, unique within its organization",
+    )
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     # Optional: ownership or visibility
     owner = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
-    embedder = models.ForeignKey("llm.LLMModel", on_delete=models.CASCADE, related_name="embedder_for")
+    embedder = models.ForeignKey(
+        "llm.LLMModel", on_delete=models.CASCADE, related_name="embedder_for"
+    )
     organization = models.ForeignKey(
         Organization,
         on_delete=models.CASCADE,
@@ -35,7 +41,14 @@ class ChromaCollection(EmbeddedDescriptionMixin, Described):
         default_manager_name = "all_objects"
         unique_together = ("organization", "name")
         # The embedding healer's "any row not by the current model?" probe.
-        indexes = [*embedding_indexes("chroma_coll"), GinIndex(fields=["stored_descriptors"], name="chroma_coll_desc_gin", opclasses=["jsonb_path_ops"])]
+        indexes = [
+            *embedding_indexes("chroma_coll"),
+            GinIndex(
+                fields=["stored_descriptors"],
+                name="chroma_coll_desc_gin",
+                opclasses=["jsonb_path_ops"],
+            ),
+        ]
 
     def __str__(self):
         return self.name

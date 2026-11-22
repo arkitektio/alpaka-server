@@ -14,4 +14,9 @@ from vector import models, types
 
 def chroma_collection(info: Info, id: strawberry.ID) -> types.ChromaCollection:
     """Get a single Chroma collection by ID."""
-    return held_to_guest(models.ChromaCollection.objects.for_organization(info.context.request.organization), info).get(id=id)
+    return held_to_guest(
+        models.ChromaCollection.objects.for_organization(
+            info.context.request.organization
+        ),
+        info,
+    ).get(id=id)

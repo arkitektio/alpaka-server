@@ -8,11 +8,10 @@ when no ``django.admin`` block is configured.
     python manage.py ensureadmin
 """
 
+from arkitekt_service.server.settings import AdminSettings
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
-
-from arkitekt_service.server.settings import AdminSettings
 
 
 class Command(BaseCommand):
@@ -21,7 +20,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options) -> None:
         raw = getattr(settings, "DJANGO_ADMIN", None)
         if not raw:
-            self.stdout.write("No django.admin configured - skipping superuser provisioning.")
+            self.stdout.write(
+                "No django.admin configured - skipping superuser provisioning."
+            )
             return
 
         # Re-validate the config-sourced dict, as ensurepartners does.
@@ -30,7 +31,12 @@ class Command(BaseCommand):
 
         user, created = User.objects.get_or_create(
             username=admin.username,
-            defaults={"email": admin.email or "", "is_staff": True, "is_superuser": True, "is_active": True},
+            defaults={
+                "email": admin.email or "",
+                "is_staff": True,
+                "is_superuser": True,
+                "is_active": True,
+            },
         )
         if not created:
             if admin.email:

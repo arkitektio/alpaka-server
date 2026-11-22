@@ -22,13 +22,17 @@ class WrongModelKind(Exception):
 def ensure_generative(model) -> None:
     """Reject a decision model on a chat, completion, image or embedding path."""
     if model.is_decision_model:
-        raise WrongModelKind(f"Model '{model.model_id}' is a decision model: it answers typed questions and cannot generate. Use the decide mutation or the systemone endpoint.")
+        raise WrongModelKind(
+            f"Model '{model.model_id}' is a decision model: it answers typed questions and cannot generate. Use the decide mutation or the systemone endpoint."
+        )
 
 
 def ensure_decision(model) -> None:
     """Reject a generative model on the decide paths."""
     if not model.is_decision_model:
-        raise WrongModelKind(f"Model '{model.model_id}' is not a decision model. Pick a model from a decision provider (e.g. TypeSafe or Ollaya).")
+        raise WrongModelKind(
+            f"Model '{model.model_id}' is not a decision model. Pick a model from a decision provider (e.g. TypeSafe or Ollaya)."
+        )
 
 
 @contextlib.contextmanager

@@ -1,19 +1,21 @@
 import datetime
 import decimal
+from typing import Annotated
 
 import strawberry
-from django.db.models import Count
-from typing import Annotated, Optional, List
-from strawberry.types import Info
+import strawberry_django
 from authentikate.strawberry.types import Client, User
+from django.db.models import Count
+from strawberry import scalars
+
 from alpaka_server.descriptors import DESCRIPTORS_DESCRIPTION, resolve_descriptors
 from alpaka_server.scoping import held_to_guest
 from kammer.type_gen import create_stats_type
 from kammer.types import build_prescoper
-from llm import models, enums, filters, scalars as llmscalars
+from llm import enums, filters, models
+from llm import scalars as llmscalars
 from llm.redaction import redact_config
-import strawberry_django
-from strawberry import scalars
+
 # --- Strawberry types ---
 
 # --- RETURN TYPES ---
@@ -41,18 +43,18 @@ class ChatMessage:
     """A chat message input for a large language model"""
 
     role: enums.Role
-    content: Optional[str]
-    name: Optional[str] = None
-    tool_call_id: Optional[str] = None
-    function_call: Optional[FunctionCall] = None
-    tool_calls: Optional[List[ToolCall]] = None
+    content: str | None
+    name: str | None = None
+    tool_call_id: str | None = None
+    function_call: FunctionCall | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 @strawberry.type
 class ThinkingBlock:
     type: enums.ThinkingBlockType
     thinking: str
-    signature: Optional[str] = None
+    signature: str | None = None
 
 
 @strawberry.type
@@ -61,9 +63,9 @@ class Choice:
 
     index: int
     message: ChatMessage
-    finish_reason: Optional[str] = None
-    thinking_blocks: Optional[List[ThinkingBlock]] = None
-    reasoning_content: Optional[str] = None
+    finish_reason: str | None = None
+    thinking_blocks: list[ThinkingBlock] | None = None
+    reasoning_content: str | None = None
 
 
 @strawberry.type
@@ -73,8 +75,8 @@ class Usage:
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
-    prompt_token_details: Optional[scalars.JSON] = None
-    completion_token_details: Optional[scalars.JSON] = None
+    prompt_token_details: scalars.JSON | None = None
+    completion_token_details: scalars.JSON | None = None
 
 
 @strawberry.type
@@ -86,8 +88,8 @@ class ChatResponse:
     system_fingerprint: str | None = None
     created: int
     model: str
-    choices: List[Choice]
-    usage: Optional[Usage]
+    choices: list[Choice]
+    usage: Usage | None
 
 
 @strawberry.type(description="A generated image, base64 encoded")
@@ -97,7 +99,13 @@ class ImageResponse:
     image: llmscalars.Base64EncodedString
 
 
-@strawberry_django.type(models.LLMModel, description="A LLM model to chage with", filters=filters.LLMModelFilter, ordering=filters.LLMModelOrder, pagination=True)
+@strawberry_django.type(
+    models.LLMModel,
+    description="A LLM model to chage with",
+    filters=filters.LLMModelFilter,
+    ordering=filters.LLMModelOrder,
+    pagination=True,
+)
 class LLMModel:
     """A large language model."""
 
@@ -109,35 +117,62 @@ class LLMModel:
         fields and nested traversals alike, so scoping lives here rather than in
         each resolver.
         """
-        return held_to_guest(queryset.filter(provider__organization=info.context.request.organization), info)
+        return held_to_guest(
+            queryset.filter(provider__organization=info.context.request.organization),
+            info,
+        )
 
-    descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: scalars.JSON = strawberry_django.field(
+        resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION
+    )
     id: strawberry.ID
     model_id: str
     label: str
     provider: "Provider"
 
-    features: List[enums.FeatureType] = strawberry_django.field(description="The features supported by the model")
-    embedder_for: List[Annotated["ChromaCollection", strawberry.lazy("vector.types")]] = strawberry_django.field(description="The collections that can be embedded with this model")
-    llm_string: str = strawberry_django.field(description="The string to use for the LLM model")
-    input_modalities: list[enums.Modality] = strawberry_django.field(description="The modalities this model accepts as input")
-    output_modalities: list[enums.Modality] = strawberry_django.field(description="The modalities this model produces as output")
+    features: list[enums.FeatureType] = strawberry_django.field(
+        description="The features supported by the model"
+    )
+    embedder_for: list[
+        Annotated["ChromaCollection", strawberry.lazy("vector.types")]
+    ] = strawberry_django.field(
+        description="The collections that can be embedded with this model"
+    )
+    llm_string: str = strawberry_django.field(
+        description="The string to use for the LLM model"
+    )
+    input_modalities: list[enums.Modality] = strawberry_django.field(
+        description="The modalities this model accepts as input"
+    )
+    output_modalities: list[enums.Modality] = strawberry_django.field(
+        description="The modalities this model produces as output"
+    )
 
 
-@strawberry_django.type(models.Provider, description="A provider of LLMs", filters=filters.ProviderFilter, ordering=filters.ProviderOrder, pagination=True)
+@strawberry_django.type(
+    models.Provider,
+    description="A provider of LLMs",
+    filters=filters.ProviderFilter,
+    ordering=filters.ProviderOrder,
+    pagination=True,
+)
 class Provider:
     """A provider of LLMs."""
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
-        return held_to_guest(queryset.filter(organization=info.context.request.organization), info)
+        return held_to_guest(
+            queryset.filter(organization=info.context.request.organization), info
+        )
 
-    descriptors: scalars.JSON = strawberry_django.field(resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION)
+    descriptors: scalars.JSON = strawberry_django.field(
+        resolver=resolve_descriptors, description=DESCRIPTORS_DESCRIPTION
+    )
     id: strawberry.ID
     name: str
-    api_base: Optional[str]
-    models: List[LLMModel]
+    api_base: str | None
+    models: list[LLMModel]
     kind: enums.ProviderKind = strawberry_django.field(
         description="The kind of the provider",
         default=enums.ProviderKind.UNKNOWN,
@@ -152,15 +187,24 @@ class Provider:
         annotated = getattr(self, "_model_count", None)
         if annotated is not None:
             return annotated
-        return models.Provider.all_objects.filter(pk=self.pk).annotate(_model_count=Count("models", distinct=True)).values_list("_model_count", flat=True).get()
+        return (
+            models.Provider.all_objects.filter(pk=self.pk)
+            .annotate(_model_count=Count("models", distinct=True))
+            .values_list("_model_count", flat=True)
+            .get()
+        )
 
-    @strawberry_django.field(description="Whether an API key is configured for this provider. The key itself is never exposed.")
+    @strawberry_django.field(
+        description="Whether an API key is configured for this provider. The key itself is never exposed."
+    )
     def has_api_key(self) -> bool:
         """Report whether a credential is set, without disclosing it."""
         return bool(self.api_key)
 
-    @strawberry_django.field(description="Provider configuration, with credential-bearing keys redacted.")
-    def additional_config(self) -> Optional[scalars.JSON]:
+    @strawberry_django.field(
+        description="Provider configuration, with credential-bearing keys redacted."
+    )
+    def additional_config(self) -> scalars.JSON | None:
         """Return the extra provider config with anything secret-looking masked.
 
         ``additional_config`` is a free-form blob that routinely carries tokens
@@ -170,14 +214,26 @@ class Provider:
         return redact_config(self.additional_config)
 
 
-@strawberry_django.type(models.DefaultUse, description="A default use for a model", filters=filters.DefaultUseFilter, ordering=filters.DefaultUseOrder, pagination=True)
+@strawberry_django.type(
+    models.DefaultUse,
+    description="A default use for a model",
+    filters=filters.DefaultUseFilter,
+    ordering=filters.DefaultUseOrder,
+    pagination=True,
+)
 class DefaultUse:
     """A model registered as the default for one kind of task."""
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
         """Restrict to the calling user's own defaults in this organization."""
-        return held_to_guest(queryset.filter(organization=info.context.request.organization, user=info.context.request.user), info)
+        return held_to_guest(
+            queryset.filter(
+                organization=info.context.request.organization,
+                user=info.context.request.user,
+            ),
+            info,
+        )
 
     id: strawberry.ID
     model: "LLMModel"
@@ -187,28 +243,38 @@ class DefaultUse:
 # --- USAGE AND BUDGETS ---
 
 
-@strawberry_django.type(models.UsageRecord, description="One LLM call, as recorded by the gateway", filters=filters.UsageRecordFilter, ordering=filters.UsageRecordOrder, pagination=True)
+@strawberry_django.type(
+    models.UsageRecord,
+    description="One LLM call, as recorded by the gateway",
+    filters=filters.UsageRecordFilter,
+    ordering=filters.UsageRecordOrder,
+    pagination=True,
+)
 class UsageRecord:
     """A recorded LLM call."""
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
-        return held_to_guest(queryset.filter(organization=info.context.request.organization), info)
+        return held_to_guest(
+            queryset.filter(organization=info.context.request.organization), info
+        )
 
     id: strawberry.ID
-    user: Optional[User]
-    client: Optional[Client]
-    model: Optional[LLMModel]
+    user: User | None
+    client: Client | None
+    model: LLMModel | None
     provider_kind: str
-    model_identifier: str = strawberry_django.field(description="The provider-side model id at the time of the call")
+    model_identifier: str = strawberry_django.field(
+        description="The provider-side model id at the time of the call"
+    )
     llm_string: str
     endpoint: enums.UsageEndpoint
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
-    cost: Optional[decimal.Decimal]
-    latency_ms: Optional[int]
+    cost: decimal.Decimal | None
+    latency_ms: int | None
     status: enums.UsageStatus
     error_type: str
     created_at: datetime.datetime
@@ -240,10 +306,10 @@ class BudgetStatus:
     period_end: datetime.datetime
     used_tokens: int
     used_cost: decimal.Decimal
-    limit_tokens: Optional[int]
-    limit_cost: Optional[decimal.Decimal]
-    remaining_tokens: Optional[int]
-    remaining_cost: Optional[decimal.Decimal]
+    limit_tokens: int | None
+    limit_cost: decimal.Decimal | None
+    remaining_tokens: int | None
+    remaining_cost: decimal.Decimal | None
     exceeded: bool
 
 
@@ -265,26 +331,40 @@ def budget_status_of(budget: models.Budget) -> BudgetStatus:
     )
 
 
-@strawberry_django.type(models.Budget, description="A cap on LLM consumption per period", filters=filters.BudgetFilter, ordering=filters.BudgetOrder, pagination=True)
+@strawberry_django.type(
+    models.Budget,
+    description="A cap on LLM consumption per period",
+    filters=filters.BudgetFilter,
+    ordering=filters.BudgetOrder,
+    pagination=True,
+)
 class Budget:
     """A budget on LLM usage."""
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
         """Restrict every read of this type to the request's organization (a guest: their collaborations)."""
-        return held_to_guest(queryset.filter(organization=info.context.request.organization), info)
+        return held_to_guest(
+            queryset.filter(organization=info.context.request.organization), info
+        )
 
     id: strawberry.ID
-    user: Optional[User] = strawberry_django.field(description="The user this budget is restricted to, or null for the whole organization")
-    model: Optional[LLMModel] = strawberry_django.field(description="The model this budget is restricted to, or null for every model")
+    user: User | None = strawberry_django.field(
+        description="The user this budget is restricted to, or null for the whole organization"
+    )
+    model: LLMModel | None = strawberry_django.field(
+        description="The model this budget is restricted to, or null for every model"
+    )
     period: enums.BudgetPeriod
-    limit_tokens: Optional[int]
-    limit_cost: Optional[decimal.Decimal]
+    limit_tokens: int | None
+    limit_cost: decimal.Decimal | None
     hard: bool
-    creator: Optional[User]
+    creator: User | None
     created_at: datetime.datetime
 
-    @strawberry_django.field(description="How much of this budget is used in the current period")
+    @strawberry_django.field(
+        description="How much of this budget is used in the current period"
+    )
     def status(self) -> BudgetStatus:
         """Current-period consumption."""
         return budget_status_of(self)
@@ -306,7 +386,9 @@ class NoulAnswer:
     """The probability that the statement is true."""
 
     key: str
-    noul: float = strawberry.field(description="Probability of yes, from 0 to 1; near 0.5 means uncertain")
+    noul: float = strawberry.field(
+        description="Probability of yes, from 0 to 1; near 0.5 means uncertain"
+    )
 
 
 @strawberry.type(description="The answer to a choice question")
@@ -315,8 +397,12 @@ class ChoiceAnswer:
 
     key: str
     choice: str = strawberry.field(description="The most probable option")
-    confidence: float = strawberry.field(description="Certainty in the choice, from 0 to 1; flag low values for review")
-    probabilities: List[OptionProbability] = strawberry.field(description="Every option with its probability, in the order the model reported them")
+    confidence: float = strawberry.field(
+        description="Certainty in the choice, from 0 to 1; flag low values for review"
+    )
+    probabilities: list[OptionProbability] = strawberry.field(
+        description="Every option with its probability, in the order the model reported them"
+    )
 
 
 @strawberry.type(description="One level of a score rubric")
@@ -333,18 +419,33 @@ class ScoreAnswer:
     """The expected level on the rubric, and how likely each level is."""
 
     key: str
-    score: float = strawberry.field(description="Expected score: the probability-weighted mean of the levels, so it may fall between them")
-    confidence: float = strawberry.field(description="Certainty in the score, from 0 to 1; flag low values for review")
-    levels: List[ScoreLevel] = strawberry.field(description="Every rubric level, lowest first, with its probability")
+    score: float = strawberry.field(
+        description="Expected score: the probability-weighted mean of the levels, so it may fall between them"
+    )
+    confidence: float = strawberry.field(
+        description="Certainty in the score, from 0 to 1; flag low values for review"
+    )
+    levels: list[ScoreLevel] = strawberry.field(
+        description="Every rubric level, lowest first, with its probability"
+    )
 
 
-DecisionAnswer = Annotated[NoulAnswer | ChoiceAnswer | ScoreAnswer, strawberry.union("DecisionAnswer", description="An answer; its type matches the question's")]
+DecisionAnswer = Annotated[
+    NoulAnswer | ChoiceAnswer | ScoreAnswer,
+    strawberry.union(
+        "DecisionAnswer", description="An answer; its type matches the question's"
+    ),
+]
 
 
 @strawberry.type(description="The answers of a decision model")
 class Decision:
     """Typed answers to a decide request."""
 
-    model: str = strawberry.field(description="The model that answered; may differ from an alias that was asked for")
-    answers: List[DecisionAnswer] = strawberry.field(description="One answer per question, in the order the questions were asked")
-    usage: Optional[Usage]
+    model: str = strawberry.field(
+        description="The model that answered; may differ from an alias that was asked for"
+    )
+    answers: list[DecisionAnswer] = strawberry.field(
+        description="One answer per question, in the order the questions were asked"
+    )
+    usage: Usage | None

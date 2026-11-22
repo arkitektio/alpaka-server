@@ -11,7 +11,9 @@ Needs Django configured but no database (unsaved model instances).
 from llm.models import LLMModel, Provider
 
 
-def make(kind: str, name: str = "My Fancy Provider", model_id: str = "gpt-4") -> LLMModel:
+def make(
+    kind: str, name: str = "My Fancy Provider", model_id: str = "gpt-4"
+) -> LLMModel:
     return LLMModel(provider=Provider(name=name, kind=kind), model_id=model_id)
 
 
@@ -25,7 +27,10 @@ def test_kind_prefix_differs_from_kind_value_where_litellm_does():
 
 
 def test_ollama_models_route_with_ollama_prefix():
-    assert make("ollama", name="Local Ollama", model_id="llama3").llm_string == "ollama/llama3"
+    assert (
+        make("ollama", name="Local Ollama", model_id="llama3").llm_string
+        == "ollama/llama3"
+    )
 
 
 def test_custom_and_unknown_kinds_fall_back_to_name():

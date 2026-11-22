@@ -56,7 +56,9 @@ def _resolve_api_base(kind: str, api_base: str | None) -> str | None:
         return None
     default = DEFAULT_API_BASE_MAP.get(kind)
     if default is None:
-        raise ApiBaseRequired(f"Provider kind '{kind}' has no default endpoint. Supply apiBase explicitly.")
+        raise ApiBaseRequired(
+            f"Provider kind '{kind}' has no default endpoint. Supply apiBase explicitly."
+        )
     return default
 
 
@@ -90,7 +92,10 @@ def _merge_config(stored: dict | None, submitted: dict) -> dict:
     is kept.
     """
     stored = stored or {}
-    return {key: stored.get(key) if value == REDACTED and key in stored else value for key, value in submitted.items()}
+    return {
+        key: stored.get(key) if value == REDACTED and key in stored else value
+        for key, value in submitted.items()
+    }
 
 
 @strawberry.input(description="The provider to update, and the fields to change")
@@ -112,12 +117,25 @@ async def update_provider(info: Info, input: UpdateProviderInput) -> types.Provi
     Rotating a credential previously meant deleting and recreating the provider,
     which cascaded away every model and every collection embedded by one.
     """
-    provider = await models.Provider.objects.for_organization(info.context.request.organization).aget(id=input.id)
+    provider = await models.Provider.objects.for_organization(
+        info.context.request.organization
+    ).aget(id=input.id)
 
-    changed = {field: value for field, value in (("name", input.name), ("description", input.description), ("api_key", input.api_key), ("api_base", input.api_base)) if value is not None}
+    changed = {
+        field: value
+        for field, value in (
+            ("name", input.name),
+            ("description", input.description),
+            ("api_key", input.api_key),
+            ("api_base", input.api_base),
+        )
+        if value is not None
+    }
 
     if input.additional_config is not None:
-        changed["additional_config"] = _merge_config(provider.additional_config, input.additional_config)
+        changed["additional_config"] = _merge_config(
+            provider.additional_config, input.additional_config
+        )
 
     for field, value in changed.items():
         setattr(provider, field, value)
@@ -142,7 +160,9 @@ async def refresh_provider(info: Info, input: RefreshProviderInput) -> types.Pro
     upstream after the fact was unreachable short of deleting and recreating
     the provider.
     """
-    provider = await models.Provider.objects.for_organization(info.context.request.organization).aget(id=input.id)
+    provider = await models.Provider.objects.for_organization(
+        info.context.request.organization
+    ).aget(id=input.id)
     await logic.arefresh_provider_models(provider)
     return provider
 
@@ -156,6 +176,8 @@ class DeleteProviderInput:
 
 async def delete_provider(info: Info, input: DeleteProviderInput) -> strawberry.ID:
     """Delete a provider of LLMs."""
-    provider = await models.Provider.objects.for_organization(info.context.request.organization).aget(id=input.id)
+    provider = await models.Provider.objects.for_organization(
+        info.context.request.organization
+    ).aget(id=input.id)
     await provider.adelete()
     return input.id

@@ -1,7 +1,7 @@
 """Live room events."""
 
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import strawberry
 from kante.types import Info
@@ -18,9 +18,15 @@ class RoomEvent:
     """A message created, updated or finished, or an agent joining or leaving."""
 
     kind: RoomEventKind
-    message: types.Message | None = strawberry.field(default=None, description="The message, for MESSAGE_* events")
-    join: types.Agent | None = strawberry.field(default=None, description="The agent that joined, for JOIN events")
-    leave: types.Agent | None = strawberry.field(default=None, description="The agent that left, for LEAVE events")
+    message: types.Message | None = strawberry.field(
+        default=None, description="The message, for MESSAGE_* events"
+    )
+    join: types.Agent | None = strawberry.field(
+        default=None, description="The agent that joined, for JOIN events"
+    )
+    leave: types.Agent | None = strawberry.field(
+        default=None, description="The agent that left, for LEAVE events"
+    )
 
 
 async def room(
@@ -32,7 +38,9 @@ async def room(
 ) -> AsyncGenerator[RoomEvent, None]:
     """Join a room and receive its events as they happen."""
     # Scoped, so a subscriber cannot listen in on another organization's room.
-    room_model = await models.Room.objects.for_organization(info.context.request.organization).aget(id=room)
+    room_model = await models.Room.objects.for_organization(
+        info.context.request.organization
+    ).aget(id=room)
 
     agent, _ = await models.Agent.objects.for_write().aget_or_create(
         user=info.context.request.user,
@@ -44,7 +52,10 @@ async def room(
 
     # Announced before listen() registers this subscriber with the group, so
     # the joiner never sees its own JOIN.
-    await message_channel.abroadcast(MessageSignal(kind=RoomEventKind.JOIN, room=room_model.id, agent=agent.id), [group])
+    await message_channel.abroadcast(
+        MessageSignal(kind=RoomEventKind.JOIN, room=room_model.id, agent=agent.id),
+        [group],
+    )
     try:
         # listen_to_room, not message_channel.listen: it scopes the events to this
         # room and refcounts the group membership, so several room subscriptions can
@@ -54,7 +65,9 @@ async def room(
                 if not signal.agent or signal.agent == agent.id:
                     continue
                 try:
-                    other = await models.Agent.objects.for_write().aget(id=signal.agent, room=room_model)
+                    other = await models.Agent.objects.for_write().aget(
+                        id=signal.agent, room=room_model
+                    )
                 except models.Agent.DoesNotExist:
                     continue
                 if signal.kind == RoomEventKind.JOIN:
@@ -69,7 +82,11 @@ async def room(
             try:
                 # The signal was matched to this room above, and the room was scoped
                 # to the caller's organization, so this id is safe to fetch.
-                message = await models.Message.objects.for_write().select_related("agent").aget(id=signal.message, room=room_model)
+                message = (
+                    await models.Message.objects.for_write()
+                    .select_related("agent")
+                    .aget(id=signal.message, room=room_model)
+                )
             except models.Message.DoesNotExist:
                 # Deleted between the broadcast and here (deleting a room cascades to
                 # its messages). Skip it, like the JOIN/LEAVE branch does -- letting it
@@ -84,6 +101,13 @@ async def room(
         # legal for an async generator as long as nothing is yielded; guarded so
         # a dying event loop cannot mask the exit.
         try:
-            await message_channel.abroadcast(MessageSignal(kind=RoomEventKind.LEAVE, room=room_model.id, agent=agent.id), [group])
+            await message_channel.abroadcast(
+                MessageSignal(
+                    kind=RoomEventKind.LEAVE, room=room_model.id, agent=agent.id
+                ),
+                [group],
+            )
         except BaseException:
-            logger.debug("Could not broadcast leave for agent %s", agent.id, exc_info=True)
+            logger.debug(
+                "Could not broadcast leave for agent %s", agent.id, exc_info=True
+            )

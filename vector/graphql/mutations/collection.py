@@ -26,13 +26,23 @@ class CollectionAlreadyExists(Exception):
 
 async def _get_embedder(info: Info, embedder_id: str) -> llm_models.LLMModel:
     """Resolve an embedding-capable model belonging to the caller's organization."""
-    embedder = await llm_models.LLMModel.objects.for_organization(info.context.request.organization).select_related("provider").aget(id=embedder_id)
+    embedder = (
+        await llm_models.LLMModel.objects.for_organization(
+            info.context.request.organization
+        )
+        .select_related("provider")
+        .aget(id=embedder_id)
+    )
     if not embedder.has_feature("embedding"):
-        raise EmbedderNotSuitable(f"Model '{embedder.llm_string}' does not support embedding. Pick a model whose features include 'embedding'.")
+        raise EmbedderNotSuitable(
+            f"Model '{embedder.llm_string}' does not support embedding. Pick a model whose features include 'embedding'."
+        )
     return embedder
 
 
-async def create_collection(info: Info, input: inputs.ChromaCollectionInput) -> types.ChromaCollection:
+async def create_collection(
+    info: Info, input: inputs.ChromaCollectionInput
+) -> types.ChromaCollection:
     """Create a new collection in the vector database."""
     embedder = await _get_embedder(info, input.embedder)
 
@@ -45,7 +55,9 @@ async def create_collection(info: Info, input: inputs.ChromaCollectionInput) -> 
             embedder=embedder,
         )
     except IntegrityError as e:
-        raise CollectionAlreadyExists(f"A collection named '{input.name}' already exists in this organization. Use ensureCollection to update it in place.") from e
+        raise CollectionAlreadyExists(
+            f"A collection named '{input.name}' already exists in this organization. Use ensureCollection to update it in place."
+        ) from e
 
     try:
         client = await gateway.aget_client()
@@ -59,11 +71,16 @@ async def create_collection(info: Info, input: inputs.ChromaCollectionInput) -> 
     return collection
 
 
-async def ensure_collection(info: Info, input: inputs.ChromaCollectionInput) -> types.ChromaCollection:
+async def ensure_collection(
+    info: Info, input: inputs.ChromaCollectionInput
+) -> types.ChromaCollection:
     """Create a collection if it does not exist yet, otherwise update it in place."""
     embedder = await _get_embedder(info, input.embedder)
 
-    collection, created = await models.ChromaCollection.objects.for_write().aupdate_or_create(
+    (
+        collection,
+        created,
+    ) = await models.ChromaCollection.objects.for_write().aupdate_or_create(
         organization=info.context.request.organization,
         name=input.name,
         defaults=dict(
@@ -86,9 +103,13 @@ async def ensure_collection(info: Info, input: inputs.ChromaCollectionInput) -> 
     return collection
 
 
-async def delete_collection(info: Info, input: inputs.DeleteCollectionInput) -> strawberry.ID:
+async def delete_collection(
+    info: Info, input: inputs.DeleteCollectionInput
+) -> strawberry.ID:
     """Delete a collection from both the vector database and the metadata store."""
-    collection = await models.ChromaCollection.objects.for_organization(info.context.request.organization).aget(id=input.id)
+    collection = await models.ChromaCollection.objects.for_organization(
+        info.context.request.organization
+    ).aget(id=input.id)
     chroma_name = collection.chroma_name
 
     client = await gateway.aget_client()

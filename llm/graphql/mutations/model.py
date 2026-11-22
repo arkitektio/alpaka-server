@@ -11,7 +11,11 @@ def use_model_for(info: Info, input: inputs.UseModelForInput) -> types.DefaultUs
     organization = info.context.request.organization
 
     # Scoped so a caller cannot adopt another organization's model as a default.
-    model = models.LLMModel.objects.for_organization(organization).select_related("provider").get(id=input.model)
+    model = (
+        models.LLMModel.objects.for_organization(organization)
+        .select_related("provider")
+        .get(id=input.model)
+    )
 
     # DefaultUse is unique on (kind, organization, user), so all three belong in
     # the lookup. With organization only in `defaults`, a user in two
@@ -25,4 +29,3 @@ def use_model_for(info: Info, input: inputs.UseModelForInput) -> types.DefaultUs
     )
 
     return default
-

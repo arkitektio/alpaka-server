@@ -13,7 +13,9 @@ class Command(BaseCommand):
         config = ProviderPartnerConfigModel(partners=settings.PROVIDER_PARTNERS)
 
         for partner in config.partners:
-            filter_config_data = partner.filter_config.model_dump() if partner.filter_config else {}
+            filter_config_data = (
+                partner.filter_config.model_dump() if partner.filter_config else {}
+            )
 
             provider_partner, created = ProviderPartner.objects.update_or_create(
                 identifier=partner.identifier,
@@ -32,8 +34,18 @@ class Command(BaseCommand):
             )
 
             verb = "Created" if created else "Updated"
-            self.stdout.write(self.style.SUCCESS(f"{verb} ProviderPartner: {provider_partner.identifier}"))
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"{verb} ProviderPartner: {provider_partner.identifier}"
+                )
+            )
             if partner.auto_configure:
-                self.stdout.write(self.style.WARNING("  -> Auto-configure enabled: a Provider will be created for every new organization"))
+                self.stdout.write(
+                    self.style.WARNING(
+                        "  -> Auto-configure enabled: a Provider will be created for every new organization"
+                    )
+                )
             if filter_config_data:
-                self.stdout.write(self.style.SUCCESS(f"  -> Filter config: {filter_config_data}"))
+                self.stdout.write(
+                    self.style.SUCCESS(f"  -> Filter config: {filter_config_data}")
+                )

@@ -8,16 +8,17 @@ import urllib.request
 import psycopg
 import pytest
 import pytest_asyncio
-from dokker import PortNotFoundError, testing
-
 from authentikate.models import Client, Membership, Organization, User
 from django.contrib.contenttypes.management import create_contenttypes
 from django.db.models.signals import post_migrate
+from dokker import PortNotFoundError, testing
 from kante.context import HttpContext, UniversalRequest, WsContext
 from strawberry.http.temporal_response import TemporalResponse
 
 
-def _wait_for_port(e, service: str, container_port: int, deadline_seconds: float = 30.0) -> int:
+def _wait_for_port(
+    e, service: str, container_port: int, deadline_seconds: float = 30.0
+) -> int:
     """The host port docker published for ``service:container_port``, once the container is up."""
     deadline = time.monotonic() + deadline_seconds
     while True:
@@ -33,7 +34,9 @@ def _wait_for_port(e, service: str, container_port: int, deadline_seconds: float
 OLLAYA_MODELS_VOLUME = "alpaka-test-ollaya"
 
 
-def _wait_for_http(e, service: str, container_port: int, path: str, deadline_seconds: float = 180.0) -> int:
+def _wait_for_http(
+    e, service: str, container_port: int, path: str, deadline_seconds: float = 180.0
+) -> int:
     """The host port of ``service``, once it answers ``path`` (the first run builds fakes)."""
     deadline = time.monotonic() + deadline_seconds
     port = None
@@ -51,9 +54,15 @@ def _wait_for_http(e, service: str, container_port: int, path: str, deadline_sec
 
 @pytest.fixture(scope="session")
 def backend_stack():
-    docker_compose_path = os.path.join(os.path.dirname(__file__), "integration", "docker-compose.yaml")
+    docker_compose_path = os.path.join(
+        os.path.dirname(__file__), "integration", "docker-compose.yaml"
+    )
     # Idempotent; the compose file declares the volume external so it outlives the run.
-    subprocess.run(["docker", "volume", "create", OLLAYA_MODELS_VOLUME], check=True, capture_output=True)
+    subprocess.run(
+        ["docker", "volume", "create", OLLAYA_MODELS_VOLUME],
+        check=True,
+        capture_output=True,
+    )
 
     # No `down()` before `up()`: `testing()` mints a fresh `dokker-test-<uuid>` project
     # every call, so downing it would only tear down the empty project this run just
@@ -100,7 +109,14 @@ def backend_stack():
         # Install it into template1 so the test database pytest-django creates from it
         # inherits it, and into testdb itself for anything connecting directly.
         for dbname in ("template1", "testdb"):
-            with psycopg.connect(dbname=dbname, user="test", password="test", host="localhost", port=db_port, autocommit=True) as connection:
+            with psycopg.connect(
+                dbname=dbname,
+                user="test",
+                password="test",
+                host="localhost",
+                port=db_port,
+                autocommit=True,
+            ) as connection:
                 connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
         yield {
@@ -153,7 +169,9 @@ def django_db_setup(django_db_setup, django_db_blocker):
         contenttypes = list(ContentType.objects.all())
         permissions = list(Permission.objects.all())
 
-    post_migrate.disconnect(dispatch_uid="django.contrib.auth.management.create_permissions")
+    post_migrate.disconnect(
+        dispatch_uid="django.contrib.auth.management.create_permissions"
+    )
     post_migrate.disconnect(create_contenttypes)
 
     def restore_contenttypes_and_permissions(sender, **kwargs):
@@ -248,7 +266,9 @@ def other_org_context(db, backend_stack) -> HttpContext:
 @pytest.fixture(scope="function")
 def same_org_other_user_context(db, backend_stack) -> HttpContext:
     """A context for a *different* user in the same organization (static token "test2")."""
-    user, _ = User.objects.get_or_create(sub="2", iss="static_issuer", defaults={"username": "static_issuer_2"})
+    user, _ = User.objects.get_or_create(
+        sub="2", iss="static_issuer", defaults={"username": "static_issuer_2"}
+    )
     client, _ = Client.objects.get_or_create(client_id="oinsoins")
     org, _ = Organization.objects.get_or_create(identifier="static_issuer#static_org")
     membership, _ = Membership.objects.get_or_create(user=user, organization=org)

@@ -1,6 +1,6 @@
 from typing import Any, NewType
-import strawberry
 
+import strawberry
 
 Identifier = NewType("Identifier", str)
 UnsafeChild = NewType("UnsafeChild", object)

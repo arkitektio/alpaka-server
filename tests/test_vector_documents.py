@@ -5,8 +5,8 @@ second and later ``queryTexts``."""
 
 import pytest
 from asgiref.sync import sync_to_async
-
 from authentikate.models import Organization
+
 from llm import models as llm_models
 from vector import models as vector_models
 from vector.graphql.queries import document as document_query
@@ -15,9 +15,18 @@ from vector.graphql.queries import document as document_query
 @sync_to_async
 def seed():
     org = Organization.objects.get(identifier="static_issuer#static_org")
-    provider = llm_models.Provider.objects.for_write().create(name="OpenAI", organization=org, kind="openai")
-    embedder = llm_models.LLMModel.objects.for_write().create(provider=provider, model_id="text-embedding-3-small", label="Embed", features=["embedding"])
-    return vector_models.ChromaCollection.objects.for_write().create(name="docs", embedder=embedder, organization=org)
+    provider = llm_models.Provider.objects.for_write().create(
+        name="OpenAI", organization=org, kind="openai"
+    )
+    embedder = llm_models.LLMModel.objects.for_write().create(
+        provider=provider,
+        model_id="text-embedding-3-small",
+        label="Embed",
+        features=["embedding"],
+    )
+    return vector_models.ChromaCollection.objects.for_write().create(
+        name="docs", embedder=embedder, organization=org
+    )
 
 
 class FakeCollection:
@@ -67,7 +76,16 @@ async def test_documents_merges_results_of_all_query_texts(aexecute, monkeypatch
     monkeypatch.setattr(document_query, "aembed_texts", fake_embed)
     monkeypatch.setattr(document_query.gateway, "aget_client", fake_client)
 
-    result = await aexecute(QUERY, {"input": {"collection": str(collection.id), "queryTexts": ["x", "y"], "nResults": 2}})
+    result = await aexecute(
+        QUERY,
+        {
+            "input": {
+                "collection": str(collection.id),
+                "queryTexts": ["x", "y"],
+                "nResults": 2,
+            }
+        },
+    )
 
     assert result.data, result.errors
     docs = result.data["documents"]
@@ -92,5 +110,7 @@ async def test_documents_empty_result(aexecute, monkeypatch):
     monkeypatch.setattr(document_query, "aembed_texts", fake_embed)
     monkeypatch.setattr(document_query.gateway, "aget_client", fake_client)
 
-    result = await aexecute(QUERY, {"input": {"collection": str(collection.id), "queryTexts": ["x"]}})
+    result = await aexecute(
+        QUERY, {"input": {"collection": str(collection.id), "queryTexts": ["x"]}}
+    )
     assert result.data == {"documents": []}, result.errors

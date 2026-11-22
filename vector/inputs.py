@@ -1,12 +1,12 @@
 """Input types for the vector app."""
 
-from typing import List, Optional
-
 import strawberry
 from strawberry import scalars
 
 
-@strawberry.input(description="A reference to an object held by another Arkitekt service")
+@strawberry.input(
+    description="A reference to an object held by another Arkitekt service"
+)
 class StructureInput:
     """A structure definition for a large language model."""
 
@@ -21,7 +21,7 @@ class DocumentInput:
     content: str
     structure: StructureInput | None = None
     id: str | None = None
-    metadata: Optional[scalars.JSON] = None
+    metadata: scalars.JSON | None = None
 
 
 @strawberry.input(description="A similarity query against a collection")
@@ -29,9 +29,13 @@ class QueryInput:
     """A query input for a large language model."""
 
     collection: strawberry.ID
-    query_texts: List[str] = strawberry.field(description="One or more query texts; the union of their results is returned, deduplicated by document")
+    query_texts: list[str] = strawberry.field(
+        description="One or more query texts; the union of their results is returned, deduplicated by document"
+    )
     n_results: int = strawberry.field(default=3, description="Results per query text")
-    where: Optional[scalars.JSON] = strawberry.field(default=None, description="Chroma metadata filter applied to every query")
+    where: scalars.JSON | None = strawberry.field(
+        default=None, description="Chroma metadata filter applied to every query"
+    )
 
 
 @strawberry.input(description="Documents to add to an existing collection")
@@ -39,7 +43,7 @@ class AddDocumentsToCollectionInput:
     """The documents to embed and store, and the collection to store them in."""
 
     collection: strawberry.ID
-    documents: List[DocumentInput]
+    documents: list[DocumentInput]
 
 
 @strawberry.input(description="A collection of documents searchable by string")
@@ -48,7 +52,7 @@ class ChromaCollectionInput:
 
     name: str
     embedder: strawberry.ID
-    description: Optional[str] = None
+    description: str | None = None
 
 
 @strawberry.input(description="The collection to delete")

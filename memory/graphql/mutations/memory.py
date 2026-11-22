@@ -17,7 +17,11 @@ def remember(info: Info, input: inputs.MemoryInput) -> types.Memory:
         organization=organization,
         user=user,
         name=input.name.strip(),
-        defaults=dict(description=input.description.strip(), content=input.content, kind=input.kind.value),
+        defaults=dict(
+            description=input.description.strip(),
+            content=input.content,
+            kind=input.kind.value,
+        ),
     )
     return memory
 
@@ -25,5 +29,9 @@ def remember(info: Info, input: inputs.MemoryInput) -> types.Memory:
 def forget(info: Info, input: inputs.ForgetInput) -> bool:
     """Forget the memory of that name; whether there was one."""
     user, organization = memory_owner(info)
-    deleted, _ = models.Memory.objects.for_organization(organization).filter(user=user, name=input.name.strip()).delete()
+    deleted, _ = (
+        models.Memory.objects.for_organization(organization)
+        .filter(user=user, name=input.name.strip())
+        .delete()
+    )
     return deleted > 0

@@ -2,7 +2,8 @@
 
 import contextlib
 import logging
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from kante.channel import build_channel
 from kante.context import WsContext
@@ -16,7 +17,9 @@ logger = logging.getLogger(__name__)
 class MessageSignal(BaseModel):
     """A room event. Carries ids only; subscribers re-fetch through the scoped managers."""
 
-    kind: RoomEventKind = Field(RoomEventKind.MESSAGE_CREATED, description="What happened")
+    kind: RoomEventKind = Field(
+        RoomEventKind.MESSAGE_CREATED, description="What happened"
+    )
     #: Required, and re-checked by every subscriber. Group membership alone does
     #: not scope a subscription: strawberry's consumer fans a channel message to
     #: every listen queue of that message type (ignoring groups), and the channel
@@ -25,7 +28,9 @@ class MessageSignal(BaseModel):
     #: than optional so a producer that forgets it fails loudly at validation
     #: instead of silently disabling the filter.
     room: int = Field(description="The room this happened in")
-    message: int | None = Field(None, description="The message that was created, updated or finished")
+    message: int | None = Field(
+        None, description="The message that was created, updated or finished"
+    )
     agent: int | None = Field(None, description="The agent that joined or left")
 
 
@@ -51,7 +56,9 @@ def _ws_context(info: Any) -> WsContext:
     return context
 
 
-async def listen_to_room(info: Any, room_id: int) -> AsyncGenerator[MessageSignal, None]:
+async def listen_to_room(
+    info: Any, room_id: int
+) -> AsyncGenerator[MessageSignal, None]:
     """This room's events, on a connection that may be watching several rooms.
 
     Not ``message_channel.listen``, because both of its assumptions break as soon
@@ -89,7 +96,9 @@ async def listen_to_room(info: Any, room_id: int) -> AsyncGenerator[MessageSigna
     # No await between the read and the write, so the count cannot be lost.
     refcounts[group] = refcounts.get(group, 0) + 1
     try:
-        async with consumer.listen_to_channel(message_channel.message_type, groups=()) as messages:
+        async with consumer.listen_to_channel(
+            message_channel.message_type, groups=()
+        ) as messages:
             async for message in messages:
                 try:
                     signal = MessageSignal.model_validate(message.get("message"))

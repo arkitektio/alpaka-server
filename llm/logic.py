@@ -3,12 +3,13 @@ import logging
 import aiohttp
 import litellm
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from litellm.types.utils import LlmProviders
 from litellm.utils import ProviderConfigManager
-from .models import LITELLM_PREFIX_BY_KIND, Provider, ProviderPartner, LLMModel
+
 from .decision import backend_for, is_decision_kind
 from .enums import FeatureType, ProviderKind
-from django.conf import settings
+from .models import LITELLM_PREFIX_BY_KIND, LLMModel, Provider, ProviderPartner
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,11 @@ def auto_configure_provider_partners(organization) -> list[str]:
                 partner=partner,
             ),
         )
-        logger.info("Auto-configured provider '%s' for organization '%s'", partner.identifier, organization)
+        logger.info(
+            "Auto-configured provider '%s' for organization '%s'",
+            partner.identifier,
+            organization,
+        )
         applied.append(partner.identifier)
 
     return applied
@@ -65,7 +70,9 @@ def detect_features(model_id: str) -> list[str]:
     return features
 
 
-def detect_modalities(model_id: str, model_data: dict | None = None) -> tuple[list[str], list[str]]:
+def detect_modalities(
+    model_id: str, model_data: dict | None = None
+) -> tuple[list[str], list[str]]:
     """Detect modalities supported by the model based on its ID/name or data."""
     input_modalities = ["text"]
     output_modalities = ["text"]
@@ -91,7 +98,12 @@ def detect_modalities(model_id: str, model_data: dict | None = None) -> tuple[li
                 return list(set(input_modalities)), list(set(output_modalities))
 
     # Fallback to ID based detection
-    if "vision" in model_id or "gpt-4-vision" in model_id or "claude-3" in model_id or "gpt-4o" in model_id:
+    if (
+        "vision" in model_id
+        or "gpt-4-vision" in model_id
+        or "claude-3" in model_id
+        or "gpt-4o" in model_id
+    ):
         input_modalities.append("image")
 
     if "dall-e" in model_id or "stable-diffusion" in model_id:
@@ -112,7 +124,9 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
     if provider_kind == ProviderKind.OLLAMA.value:
         timeout = aiohttp.ClientTimeout(total=LIST_MODELS_TIMEOUT_SECONDS)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(f"{provider.api_base or settings.OLLAMA_URL}/api/tags") as res:
+            async with session.get(
+                f"{provider.api_base or settings.OLLAMA_URL}/api/tags"
+            ) as res:
                 if res.status != 200:
                     raise Exception("Ollama failed")
                 data = await res.json()
@@ -134,7 +148,11 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
 
     elif provider_kind == ProviderKind.OPENROUTER.value:
         # Use OpenRouter "user models" list (filtered to the API key / provider prefs)
-        base = provider.api_base.rstrip("/") if provider.api_base else "https://openrouter.ai/api/v1"
+        base = (
+            provider.api_base.rstrip("/")
+            if provider.api_base
+            else "https://openrouter.ai/api/v1"
+        )
         url = f"{base}/models/user"
         headers = {
             "Authorization": f"Bearer {provider.api_key}",
@@ -145,7 +163,9 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
             async with session.get(url) as res:
                 if res.status != 200:
                     text = await res.text()
-                    raise Exception(f"OpenRouter list models failed: {res.status} {text}")
+                    raise Exception(
+                        f"OpenRouter list models failed: {res.status} {text}"
+                    )
                 data = await res.json()
 
         for model in data.get("data", []):
@@ -174,7 +194,9 @@ async def arefresh_provider_models(provider: Provider) -> list[LLMModel]:
             else:
                 model_ids = await sync_to_async(list_litellm_models)(provider)
         except Exception as e:
-            raise Exception(f"Failed to list models for {provider_kind} provider: {e}") from e
+            raise Exception(
+                f"Failed to list models for {provider_kind} provider: {e}"
+            ) from e
 
         for model_id in model_ids:
             features = detect_features(model_id)
@@ -219,7 +241,9 @@ async def alist_anthropic_models(provider: Provider) -> list[str]:
         while True:
             async with session.get(f"{base}/v1/models", params=params) as res:
                 if res.status != 200:
-                    raise Exception(f"Anthropic list models failed: {res.status} {await res.text()}")
+                    raise Exception(
+                        f"Anthropic list models failed: {res.status} {await res.text()}"
+                    )
                 page = await res.json()
             model_ids.extend(model["id"] for model in page.get("data", []))
             if not page.get("has_more") or not page.get("last_id"):
@@ -236,11 +260,15 @@ def list_litellm_models(provider: Provider) -> list[str]:
     prefix = LITELLM_PREFIX_BY_KIND.get(provider.kind)
     if prefix is None:
         raise Exception(f"'{provider.kind}' providers cannot list their models")
-    model_info = ProviderConfigManager.get_provider_model_info(model=None, provider=LlmProviders(prefix))
+    model_info = ProviderConfigManager.get_provider_model_info(
+        model=None, provider=LlmProviders(prefix)
+    )
     try:
         if model_info is None:
             raise NotImplementedError
-        listed = model_info.get_models(api_key=provider.api_key, api_base=provider.api_base)
+        listed = model_info.get_models(
+            api_key=provider.api_key, api_base=provider.api_base
+        )
     except NotImplementedError:
         listed = sorted(litellm.models_by_provider.get(prefix, []))
     return [strip_routing_prefix(model_id, prefix) for model_id in listed]

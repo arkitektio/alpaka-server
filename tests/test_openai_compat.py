@@ -27,12 +27,17 @@ import llm.views as views
 ASGI_APP = get_asgi_application()
 
 FAKE_PROVIDER = types.SimpleNamespace(
-    name="openrouter", kind="OPENROUTER",
-    api_base="https://openrouter.ai/api/v1", api_key="sk-test",
+    name="openrouter",
+    kind="OPENROUTER",
+    api_base="https://openrouter.ai/api/v1",
+    api_key="sk-test",
 )
 FAKE_MODEL = types.SimpleNamespace(
-    llm_string="openrouter/gpt-4", model_id="gpt-4",
-    provider=FAKE_PROVIDER, is_available=True, is_decision_model=False,
+    llm_string="openrouter/gpt-4",
+    model_id="gpt-4",
+    provider=FAKE_PROVIDER,
+    is_available=True,
+    is_decision_model=False,
 )
 
 
@@ -53,7 +58,9 @@ def _mock_litellm(monkeypatch, *, text="Hello world from mock", error=None):
     """Patch the litellm entry points used by the views to return canned,
     OpenAI-shaped output via ``mock_response`` (or raise ``error``)."""
     orig_ac, orig_at, orig_ae = (
-        litellm.acompletion, litellm.atext_completion, litellm.aembedding,
+        litellm.acompletion,
+        litellm.atext_completion,
+        litellm.aembedding,
     )
 
     def wrap(orig, mock_value):
@@ -62,6 +69,7 @@ def _mock_litellm(monkeypatch, *, text="Hello world from mock", error=None):
                 raise error
             kw["mock_response"] = mock_value
             return await orig(**kw)
+
         return inner
 
     monkeypatch.setattr(views.litellm, "acompletion", wrap(orig_ac, text))
@@ -83,7 +91,9 @@ def client(monkeypatch):
     http_client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver"
     )
-    oai = AsyncOpenAI(api_key="test", base_url="http://testserver/llm/v1", http_client=http_client)
+    oai = AsyncOpenAI(
+        api_key="test", base_url="http://testserver/llm/v1", http_client=http_client
+    )
     yield oai
 
 
@@ -236,16 +246,21 @@ async def test_custom_pricing_never_reaches_litellm(client, monkeypatch):
     assert litellm.model_cost.get("openrouter/gpt-4") == before
 
 
-@pytest.mark.parametrize("key,value", [
-    ("mock_response", "free lunch"),
-    ("num_retries", 50),
-    ("fallbacks", [{"model": "someone/elses-model"}]),
-    ("model_list", [{"model_name": "x"}]),
-    ("caching", True),
-    ("headers", {"x-smuggled": "1"}),
-])
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("mock_response", "free lunch"),
+        ("num_retries", 50),
+        ("fallbacks", [{"model": "someone/elses-model"}]),
+        ("model_list", [{"model_name": "x"}]),
+        ("caching", True),
+        ("headers", {"x-smuggled": "1"}),
+    ],
+)
 @pytest.mark.asyncio
-async def test_litellm_control_params_are_not_forwarded(client, monkeypatch, key, value):
+async def test_litellm_control_params_are_not_forwarded(
+    client, monkeypatch, key, value
+):
     """litellm accepts ~190 control kwargs; the tunnel forwards request params only."""
     seen = {}
     orig = litellm.acompletion
@@ -256,21 +271,47 @@ async def test_litellm_control_params_are_not_forwarded(client, monkeypatch, key
         return await orig(**kw)
 
     monkeypatch.setattr(views.litellm, "acompletion", spy)
-    await client.chat.completions.create(model="x", messages=[{"role": "user", "content": "hi"}], extra_body={key: value})
+    await client.chat.completions.create(
+        model="x", messages=[{"role": "user", "content": "hi"}], extra_body={key: value}
+    )
     assert key not in seen
 
 
 def test_the_reserved_key_set_has_not_drifted():
     """``all_litellm_params`` and ``OPENAI_CHAT_COMPLETION_PARAMS`` are litellm
     internals: a version bump can move a key between them silently."""
-    forwarded = {"tools", "tool_choice", "response_format", "stream_options", "seed",
-                 "logprobs", "max_completion_tokens", "parallel_tool_calls", "reasoning_effort"}
+    forwarded = {
+        "tools",
+        "tool_choice",
+        "response_format",
+        "stream_options",
+        "seed",
+        "logprobs",
+        "max_completion_tokens",
+        "parallel_tool_calls",
+        "reasoning_effort",
+    }
     assert forwarded & views.RESERVED_LITELLM_KEYS == set()
 
-    blocked = {"api_key", "api_base", "base_url", "api_version", "extra_headers",
-               "default_headers", "headers", "organization", "deployment_id", "max_retries",
-               "input_cost_per_token", "output_cost_per_token", "mock_response",
-               "fallbacks", "model_list", "caching", "num_retries"}
+    blocked = {
+        "api_key",
+        "api_base",
+        "base_url",
+        "api_version",
+        "extra_headers",
+        "default_headers",
+        "headers",
+        "organization",
+        "deployment_id",
+        "max_retries",
+        "input_cost_per_token",
+        "output_cost_per_token",
+        "mock_response",
+        "fallbacks",
+        "model_list",
+        "caching",
+        "num_retries",
+    }
     assert blocked <= views.RESERVED_LITELLM_KEYS
 
 
@@ -286,8 +327,21 @@ async def test_tool_calling_still_tunnels(client, monkeypatch):
         return await orig(**kw)
 
     monkeypatch.setattr(views.litellm, "acompletion", spy)
-    tools = [{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object", "properties": {}}}}]
-    await client.chat.completions.create(model="x", messages=[{"role": "user", "content": "hi"}], tools=tools, tool_choice="auto")
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    await client.chat.completions.create(
+        model="x",
+        messages=[{"role": "user", "content": "hi"}],
+        tools=tools,
+        tool_choice="auto",
+    )
     assert seen["tools"] == tools and seen["tool_choice"] == "auto"
 
 
@@ -312,17 +366,28 @@ async def test_a_mid_stream_error_still_terminates_with_done(monkeypatch):
             if self.sent:
                 raise RuntimeError("upstream died mid-stream")
             self.sent = True
-            return types.SimpleNamespace(model_dump=lambda: {"id": "c", "choices": [{"index": 0, "delta": {"content": "hi"}}]})
+            return types.SimpleNamespace(
+                model_dump=lambda: {
+                    "id": "c",
+                    "choices": [{"index": 0, "delta": {"content": "hi"}}],
+                }
+            )
 
     async def spy(**kw):
         return _Exploding()
 
     monkeypatch.setattr(views.litellm, "acompletion", spy)
 
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver") as http:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver"
+    ) as http:
         response = await http.post(
             "/llm/v1/chat/completions",
-            json={"model": "x", "messages": [{"role": "user", "content": "hi"}], "stream": True},
+            json={
+                "model": "x",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+            },
             headers={"Authorization": "Bearer test"},
         )
     frames = [line for line in response.text.splitlines() if line.startswith("data: ")]
@@ -333,14 +398,19 @@ async def test_a_mid_stream_error_still_terminates_with_done(monkeypatch):
 @pytest.mark.asyncio
 async def test_a_non_object_body_is_a_400_not_a_500(monkeypatch):
     monkeypatch.setattr(views, "authenticate_request", _fake_auth)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver") as http:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=ASGI_APP), base_url="http://testserver"
+    ) as http:
         # ``null`` parses fine and then reached ``"messages" not in payload`` as a
         # TypeError -- Django's HTML 500, not an OpenAI-shaped error body. Sent as
         # raw content because httpx reads ``json=None`` as "no body at all".
         response = await http.post(
             "/llm/v1/chat/completions",
             content=b"null",
-            headers={"Authorization": "Bearer test", "Content-Type": "application/json"},
+            headers={
+                "Authorization": "Bearer test",
+                "Content-Type": "application/json",
+            },
         )
     assert response.status_code == 400
     assert response.json()["error"]["type"] == "invalid_request_error"

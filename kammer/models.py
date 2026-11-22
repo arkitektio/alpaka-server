@@ -1,14 +1,13 @@
-from alpaka_server.scoping import OrganizationScopedManager
 from arkitekt_service.service.described import Described
+from authentikate.models import Client, Organization, User
 from django.contrib.postgres.indexes import GinIndex
-from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db.models import F, Max
 from django.db.models.functions import Coalesce
-from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
-from authentikate.models import Client, User, Organization
 from koherent.fields import ProvenanceField
+
+from alpaka_server.scoping import OrganizationScopedManager
+from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 
 # Create your models here.
 
@@ -18,7 +17,9 @@ class Structure(models.Model):
         max_length=1000,
         help_text="The identifier of the object. Consult the documentation for the format",
     )
-    object = models.PositiveIntegerField(help_text="The object id of the object, on its associated service")
+    object = models.PositiveIntegerField(
+        help_text="The object id of the object, on its associated service"
+    )
 
 
 def room_last_activity(prefix: str = "") -> Coalesce:
@@ -45,7 +46,9 @@ class Room(EmbeddedDescriptionMixin, Described):
         on_delete=models.CASCADE,
         help_text="The organization this room belongs to",
     )
-    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this room got created")
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="The time this room got created"
+    )
     contextual_structures = models.ManyToManyField(Structure)
 
     objects = OrganizationScopedManager()
@@ -55,7 +58,14 @@ class Room(EmbeddedDescriptionMixin, Described):
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
         # The embedding healer's "any row not by the current model?" probe.
-        indexes = [*embedding_indexes("room"), GinIndex(fields=["stored_descriptors"], name="room_desc_gin", opclasses=["jsonb_path_ops"])]
+        indexes = [
+            *embedding_indexes("room"),
+            GinIndex(
+                fields=["stored_descriptors"],
+                name="room_desc_gin",
+                opclasses=["jsonb_path_ops"],
+            ),
+        ]
 
     @property
     def messages(self):
@@ -114,7 +124,9 @@ class Message(Described):
     )
     is_streaming = models.BooleanField(default=False)
     text = models.TextField(help_text="A clear text representation of the rich comment")
-    created_at = models.DateTimeField(auto_now_add=True, help_text="The time this comment got created")
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="The time this comment got created"
+    )
     is_reply_to = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -143,7 +155,13 @@ class Message(Described):
     class Meta:
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
-        indexes = [GinIndex(fields=["stored_descriptors"], name="message_desc_gin", opclasses=["jsonb_path_ops"])]
+        indexes = [
+            GinIndex(
+                fields=["stored_descriptors"],
+                name="message_desc_gin",
+                opclasses=["jsonb_path_ops"],
+            )
+        ]
 
 
 from .signals import *  # noqa: E402,F401,F403

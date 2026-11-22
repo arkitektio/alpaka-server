@@ -1,5 +1,6 @@
-import strawberry
 from enum import Enum
+
+import strawberry
 
 # --- ENUMS ---
 
@@ -53,7 +54,6 @@ class Modality(str, Enum):
     TEXT = "text"
     AUDIO = "audio"
     VIDEO = "video"
-
 
 
 @strawberry.enum(description="A task a model can be made the default for")
@@ -130,4 +130,3 @@ class BudgetPeriod(str, Enum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
-

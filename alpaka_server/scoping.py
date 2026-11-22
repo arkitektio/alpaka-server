@@ -63,7 +63,9 @@ class OrganizationScopedManager(models.Manager):  # type: ignore[type-arg]
             f"comment saying why."
         )
 
-    def for_organization(self, organization: "Organization | int") -> models.QuerySet[Any]:
+    def for_organization(
+        self, organization: "Organization | int"
+    ) -> models.QuerySet[Any]:
         """The only supported entry point for reading tenant-owned rows."""
         return super().get_queryset().filter(**{self.field: organization})
 

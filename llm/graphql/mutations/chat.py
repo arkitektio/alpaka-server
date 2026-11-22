@@ -5,7 +5,7 @@ rather than copied into it; they used to be duplicated verbatim across both
 files, and the copy in ``image.py`` was never called.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import litellm
 from kante.types import Info
@@ -13,16 +13,24 @@ from kante.types import Info
 from llm import manager, models
 from llm.enums import DefaultKind, UsageEndpoint
 from llm.errors import ensure_generative, wrap_llm_errors
-from llm.usage import enforce_budget, track_usage
 from llm.inputs import ChatInput, ChatMessageInput, ToolInput
-from llm.types import ChatMessage, ChatResponse, Choice, FunctionCall, ThinkingBlock, ToolCall, Usage
+from llm.types import (
+    ChatMessage,
+    ChatResponse,
+    Choice,
+    FunctionCall,
+    ThinkingBlock,
+    ToolCall,
+    Usage,
+)
+from llm.usage import enforce_budget, track_usage
 
 #: Ceiling on a single completion. Alpaka proxies upstreams it does not control,
 #: so a request with no ceiling would hold a worker open indefinitely.
 COMPLETION_TIMEOUT_SECONDS = 600
 
 
-def _thinking_blocks(choice: Any) -> Optional[List[ThinkingBlock]]:
+def _thinking_blocks(choice: Any) -> list[ThinkingBlock] | None:
     """Map a choice's reasoning blocks, when the upstream returned any."""
     blocks = getattr(choice.message, "thinking_blocks", None)
     if not blocks:
@@ -37,12 +45,12 @@ def _thinking_blocks(choice: Any) -> Optional[List[ThinkingBlock]]:
     ]
 
 
-def _usage(usage: Any) -> Optional[Usage]:
+def _usage(usage: Any) -> Usage | None:
     """Map token accounting, including the per-modality breakdowns when present."""
     if not usage:
         return None
 
-    def as_json(value: Any) -> Optional[Any]:
+    def as_json(value: Any) -> Any | None:
         if value is None:
             return None
         return value.model_dump() if hasattr(value, "model_dump") else value
@@ -52,7 +60,9 @@ def _usage(usage: Any) -> Optional[Usage]:
         completion_tokens=usage.completion_tokens,
         total_tokens=usage.total_tokens,
         prompt_token_details=as_json(getattr(usage, "prompt_tokens_details", None)),
-        completion_token_details=as_json(getattr(usage, "completion_tokens_details", None)),
+        completion_token_details=as_json(
+            getattr(usage, "completion_tokens_details", None)
+        ),
     )
 
 
@@ -86,9 +96,13 @@ def to_chat_response(response: litellm.ModelResponse) -> ChatResponse:
                         ToolCall(
                             id=tool_call.id,
                             type=tool_call.type,
-                            function=FunctionCall(name=tool_call.function.name, arguments=tool_call.function.arguments),
+                            function=FunctionCall(
+                                name=tool_call.function.name,
+                                arguments=tool_call.function.arguments,
+                            ),
                         )
-                        for tool_call in getattr(choice.message, "tool_calls", None) or []
+                        for tool_call in getattr(choice.message, "tool_calls", None)
+                        or []
                     ]
                     or None,
                 ),
@@ -98,11 +112,11 @@ def to_chat_response(response: litellm.ModelResponse) -> ChatResponse:
     )
 
 
-def serialize_messages(messages: List[ChatMessageInput]) -> List[dict]:
+def serialize_messages(messages: list[ChatMessageInput]) -> list[dict]:
     """Shape the GraphQL message inputs into the dicts litellm expects."""
     result = []
     for m in messages:
-        msg: Dict[str, Any] = {
+        msg: dict[str, Any] = {
             "role": m.role.value,
             "content": m.content,
             "name": m.name,
@@ -129,7 +143,7 @@ def serialize_messages(messages: List[ChatMessageInput]) -> List[dict]:
     return result
 
 
-def serialize_tools(tools: Optional[List[ToolInput]]) -> Optional[List[dict]]:
+def serialize_tools(tools: list[ToolInput] | None) -> list[dict] | None:
     """Shape the GraphQL tool inputs into the dicts litellm expects."""
     if not tools:
         return None
@@ -146,7 +160,9 @@ def serialize_tools(tools: Optional[List[ToolInput]]) -> Optional[List[dict]]:
     ]
 
 
-def resolve_model(info: Info, model_id: Optional[str], kind: DefaultKind) -> models.LLMModel:
+def resolve_model(
+    info: Info, model_id: str | None, kind: DefaultKind
+) -> models.LLMModel:
     """Resolve the requested model, or the caller's default for ``kind``.
 
     Scoped to the request's organization, so a bare id cannot reach another
@@ -154,11 +170,17 @@ def resolve_model(info: Info, model_id: Optional[str], kind: DefaultKind) -> mod
     """
     organization = info.context.request.organization
     if model_id:
-        return models.LLMModel.objects.for_organization(organization).select_related("provider").get(id=model_id)
-    return manager.get_default_llm_model_for_user(info.context.request.user, organization, kind)
+        return (
+            models.LLMModel.objects.for_organization(organization)
+            .select_related("provider")
+            .get(id=model_id)
+        )
+    return manager.get_default_llm_model_for_user(
+        info.context.request.user, organization, kind
+    )
 
 
-def generation_kwargs(input: ChatInput) -> Dict[str, Any]:
+def generation_kwargs(input: ChatInput) -> dict[str, Any]:
     """Collect the optional generation parameters the caller actually set.
 
     Omitted rather than passed as ``None``, because litellm forwards explicit
@@ -191,7 +213,13 @@ def chat(info: Info, input: ChatInput) -> ChatResponse:
     enforce_budget(request.organization, request.user, chat_model)
 
     # Streaming is not expressible on a mutation; the REST endpoint serves it.
-    with track_usage(organization=request.organization, user=request.user, client=request.client, model=chat_model, endpoint=UsageEndpoint.GRAPHQL_CHAT) as track:
+    with track_usage(
+        organization=request.organization,
+        user=request.user,
+        client=request.client,
+        model=chat_model,
+        endpoint=UsageEndpoint.GRAPHQL_CHAT,
+    ) as track:
         with wrap_llm_errors(chat_model):
             response = litellm.completion(
                 model=chat_model.llm_string,

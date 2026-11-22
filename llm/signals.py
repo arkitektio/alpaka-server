@@ -26,4 +26,6 @@ def auto_configure_providers_for_org(sender, instance, created, **kwargs):
         auto_configure_provider_partners(instance)
     except Exception:
         # Never let provider provisioning break organization creation / auth.
-        logger.exception("Failed to auto-configure providers for organization '%s'", instance)
+        logger.exception(
+            "Failed to auto-configure providers for organization '%s'", instance
+        )

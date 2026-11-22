@@ -1,10 +1,17 @@
 # api/models.py
-from alpaka_server.scoping import OrganizationScopedManager
 from arkitekt_service.service.described import Described
+from authentikate.models import Client, Organization, User
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
-from llm.enums import BudgetPeriod, FeatureType, ProviderKind, UsageEndpoint, UsageStatus
-from authentikate.models import Client, Organization, User
+
+from alpaka_server.scoping import OrganizationScopedManager
+from llm.enums import (
+    BudgetPeriod,
+    FeatureType,
+    ProviderKind,
+    UsageEndpoint,
+    UsageStatus,
+)
 
 
 class ProviderPartner(models.Model):
@@ -17,14 +24,23 @@ class ProviderPartner(models.Model):
 
     name = models.CharField(max_length=1000)
     identifier = models.CharField(max_length=1000, unique=True)
-    description = models.TextField(default="No description available", null=True, blank=True)
+    description = models.TextField(
+        default="No description available", null=True, blank=True
+    )
     short_description = models.CharField(max_length=280, null=True, blank=True)
     logo_url = models.CharField(max_length=1000, null=True, blank=True)
-    kind = models.CharField(max_length=50, choices=[(kind.value, kind.name) for kind in ProviderKind], default=ProviderKind.UNKNOWN.value)
+    kind = models.CharField(
+        max_length=50,
+        choices=[(kind.value, kind.name) for kind in ProviderKind],
+        default=ProviderKind.UNKNOWN.value,
+    )
     api_key = models.TextField(blank=True, null=True)
     api_base = models.URLField(blank=True, null=True)
     additional_config = models.JSONField(blank=True, null=True)
-    auto_configure = models.BooleanField(default=False, help_text="If set, a Provider is created for every new organization.")
+    auto_configure = models.BooleanField(
+        default=False,
+        help_text="If set, a Provider is created for every new organization.",
+    )
     filter_config = models.JSONField(
         help_text="Filter conditions to determine which users/organizations this partner applies to. Example: {'email_domain_equals': ['example.com'], 'email_domain_ends_with': ['edu']}",
         null=True,
@@ -47,7 +63,9 @@ class ProviderPartner(models.Model):
             return True
 
         user_email = getattr(user, "email", None) or ""
-        user_email_domain = user_email.split("@")[-1].lower() if "@" in user_email else ""
+        user_email_domain = (
+            user_email.split("@")[-1].lower() if "@" in user_email else ""
+        )
         username = getattr(user, "username", "") or ""
 
         if "email_domain_equals" in self.filter_config:
@@ -83,9 +101,15 @@ class Provider(Described):
     api_key = models.TextField(blank=True, null=True)
     api_base = models.URLField(blank=True, null=True)
     additional_config = models.JSONField(blank=True, null=True)
-    creator = models.ForeignKey("authentikate.User", on_delete=models.CASCADE, null=True, blank=True)
+    creator = models.ForeignKey(
+        "authentikate.User", on_delete=models.CASCADE, null=True, blank=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
-    kind = models.CharField(max_length=50, choices=[(kind.value, kind.name) for kind in ProviderKind], default=ProviderKind.UNKNOWN.value)
+    kind = models.CharField(
+        max_length=50,
+        choices=[(kind.value, kind.name) for kind in ProviderKind],
+        default=ProviderKind.UNKNOWN.value,
+    )
     organization = models.ForeignKey(
         Organization,
         on_delete=models.CASCADE,
@@ -107,7 +131,13 @@ class Provider(Described):
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
         unique_together = ("organization", "name")
-        indexes = [GinIndex(fields=["stored_descriptors"], name="provider_desc_gin", opclasses=["jsonb_path_ops"])]
+        indexes = [
+            GinIndex(
+                fields=["stored_descriptors"],
+                name="provider_desc_gin",
+                opclasses=["jsonb_path_ops"],
+            )
+        ]
 
 
 #: litellm routes on the prefix before the first "/" in the model string, which
@@ -144,7 +174,9 @@ for _kind, _prefix in LITELLM_PREFIX_BY_KIND.items():
 
 
 class LLMModel(Described):
-    provider = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="models")
+    provider = models.ForeignKey(
+        Provider, on_delete=models.CASCADE, related_name="models"
+    )
     model_id = models.CharField(max_length=255)
     label = models.CharField(max_length=255)
     features = models.JSONField(default=list, blank=True, null=True)
@@ -159,7 +191,13 @@ class LLMModel(Described):
     class Meta:
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
-        indexes = [GinIndex(fields=["stored_descriptors"], name="llmmodel_desc_gin", opclasses=["jsonb_path_ops"])]
+        indexes = [
+            GinIndex(
+                fields=["stored_descriptors"],
+                name="llmmodel_desc_gin",
+                opclasses=["jsonb_path_ops"],
+            )
+        ]
 
     @property
     def is_available(self):
@@ -226,20 +264,63 @@ class UsageRecord(models.Model):
     still say what was called and what it cost.
     """
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="usage_records", help_text="The organization that was billed")
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_records", help_text="The user who made the call")
-    client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_records", help_text="The client the call came through")
-    model = models.ForeignKey(LLMModel, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_records", help_text="The model that was called, if it still exists")
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="usage_records",
+        help_text="The organization that was billed",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="usage_records",
+        help_text="The user who made the call",
+    )
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="usage_records",
+        help_text="The client the call came through",
+    )
+    model = models.ForeignKey(
+        LLMModel,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="usage_records",
+        help_text="The model that was called, if it still exists",
+    )
     provider_kind = models.CharField(max_length=50, blank=True, default="")
-    model_identifier = models.CharField(max_length=255, blank=True, default="", help_text="The provider-side model id at the time of the call")
+    model_identifier = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The provider-side model id at the time of the call",
+    )
     llm_string = models.CharField(max_length=512, blank=True, default="")
-    endpoint = models.CharField(max_length=32, choices=[(e.value, e.name) for e in UsageEndpoint])
+    endpoint = models.CharField(
+        max_length=32, choices=[(e.value, e.name) for e in UsageEndpoint]
+    )
     prompt_tokens = models.PositiveIntegerField(default=0)
     completion_tokens = models.PositiveIntegerField(default=0)
     total_tokens = models.PositiveIntegerField(default=0)
-    cost = models.DecimalField(max_digits=20, decimal_places=10, null=True, blank=True, help_text="Cost in USD as reported or estimated by litellm; null when the model is not in its price map")
+    cost = models.DecimalField(
+        max_digits=20,
+        decimal_places=10,
+        null=True,
+        blank=True,
+        help_text="Cost in USD as reported or estimated by litellm; null when the model is not in its price map",
+    )
     latency_ms = models.PositiveIntegerField(null=True, blank=True)
-    status = models.CharField(max_length=8, choices=[(e.value, e.name) for e in UsageStatus], default=UsageStatus.OK.value)
+    status = models.CharField(
+        max_length=8,
+        choices=[(e.value, e.name) for e in UsageStatus],
+        default=UsageStatus.OK.value,
+    )
     error_type = models.CharField(max_length=128, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -250,8 +331,13 @@ class UsageRecord(models.Model):
         base_manager_name = "all_objects"
         default_manager_name = "all_objects"
         indexes = [
-            models.Index(fields=["organization", "created_at"], name="llm_usage_org_created_idx"),
-            models.Index(fields=["organization", "user", "created_at"], name="llm_usage_org_user_created_idx"),
+            models.Index(
+                fields=["organization", "created_at"], name="llm_usage_org_created_idx"
+            ),
+            models.Index(
+                fields=["organization", "user", "created_at"],
+                name="llm_usage_org_user_created_idx",
+            ),
         ]
 
     def __str__(self):
@@ -266,14 +352,47 @@ class Budget(models.Model):
     soft budgets only log.
     """
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="budgets")
-    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="budgets", help_text="Restrict the budget to one user; null applies to everyone in the organization")
-    model = models.ForeignKey(LLMModel, on_delete=models.CASCADE, null=True, blank=True, related_name="budgets", help_text="Restrict the budget to one model; null applies to every model")
-    period = models.CharField(max_length=8, choices=[(e.value, e.name) for e in BudgetPeriod], default=BudgetPeriod.MONTH.value)
-    limit_tokens = models.PositiveBigIntegerField(null=True, blank=True, help_text="Maximum total tokens per period")
-    limit_cost = models.DecimalField(max_digits=16, decimal_places=4, null=True, blank=True, help_text="Maximum cost in USD per period")
-    hard = models.BooleanField(default=True, help_text="Block calls once exceeded; otherwise only log a warning")
-    creator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="budgets"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="budgets",
+        help_text="Restrict the budget to one user; null applies to everyone in the organization",
+    )
+    model = models.ForeignKey(
+        LLMModel,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="budgets",
+        help_text="Restrict the budget to one model; null applies to every model",
+    )
+    period = models.CharField(
+        max_length=8,
+        choices=[(e.value, e.name) for e in BudgetPeriod],
+        default=BudgetPeriod.MONTH.value,
+    )
+    limit_tokens = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Maximum total tokens per period"
+    )
+    limit_cost = models.DecimalField(
+        max_digits=16,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text="Maximum cost in USD per period",
+    )
+    hard = models.BooleanField(
+        default=True,
+        help_text="Block calls once exceeded; otherwise only log a warning",
+    )
+    creator = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = OrganizationScopedManager()

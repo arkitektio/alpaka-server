@@ -9,7 +9,7 @@ Agents live on clients. Nothing here calls an LLM; the client forwards the
 tokens it received and the server stores and fans them out.
 """
 
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from django.db import transaction
 from django.db.models import F, TextField, Value
@@ -24,47 +24,82 @@ def attach_structures(structures: Iterable) -> list[models.Structure]:
     """Resolve (or create) the structure rows for a list of structure references."""
     resolved = []
     for structure in structures:
-        row, _ = models.Structure.objects.get_or_create(object=structure.object, identifier=structure.identifier)
+        row, _ = models.Structure.objects.get_or_create(
+            object=structure.object, identifier=structure.identifier
+        )
         resolved.append(row)
     return resolved
 
 
-def room_and_agent(*, organization, user, client, room_id, agent_name: str) -> tuple[models.Room, models.Agent]:
+def room_and_agent(
+    *, organization, user, client, room_id, agent_name: str
+) -> tuple[models.Room, models.Agent]:
     """The scoped room, and the user+client's agent in it (created on first use)."""
     # Scoped first, so a caller cannot post into another organization's room.
     room = models.Room.objects.for_organization(organization).get(id=room_id)
-    agent, _ = models.Agent.objects.for_write().get_or_create(user=user, client=client, room=room, name=agent_name)
+    agent, _ = models.Agent.objects.for_write().get_or_create(
+        user=user, client=client, room=room, name=agent_name
+    )
     return room, agent
 
 
-def parent_message(*, organization, room: models.Room, parent_id) -> Optional[models.Message]:
+def parent_message(
+    *, organization, room: models.Room, parent_id
+) -> models.Message | None:
     """The message being replied to, which must live in the same room."""
     if parent_id is None:
         return None
-    return models.Message.objects.for_organization(organization).get(id=parent_id, room=room)
+    return models.Message.objects.for_organization(organization).get(
+        id=parent_id, room=room
+    )
 
 
-def open_message(*, organization, user, client, room_id, agent_name: str, parent_id=None, text: str = "") -> models.Message:
+def open_message(
+    *,
+    organization,
+    user,
+    client,
+    room_id,
+    agent_name: str,
+    parent_id=None,
+    text: str = "",
+) -> models.Message:
     """Create a message with ``is_streaming=True``. The post_save receiver announces it."""
-    room, agent = room_and_agent(organization=organization, user=user, client=client, room_id=room_id, agent_name=agent_name)
+    room, agent = room_and_agent(
+        organization=organization,
+        user=user,
+        client=client,
+        room_id=room_id,
+        agent_name=agent_name,
+    )
     return models.Message.objects.for_write().create(
         agent=agent,
         room=room,
         text=text,
         is_streaming=True,
-        is_reply_to=parent_message(organization=organization, room=room, parent_id=parent_id),
+        is_reply_to=parent_message(
+            organization=organization, room=room, parent_id=parent_id
+        ),
     )
 
 
-def owned_streaming_message(*, organization, user, client, message_id) -> models.Message:
+def owned_streaming_message(
+    *, organization, user, client, message_id
+) -> models.Message:
     """The message, provided it is in ``organization``, still streaming, and started by ``user``+``client``.
 
     Scoped read first: another organization gets a plain "does not exist",
     never a permission error about a row it cannot see.
     """
-    message = models.Message.objects.for_organization(organization).select_related("agent").get(id=message_id)
+    message = (
+        models.Message.objects.for_organization(organization)
+        .select_related("agent")
+        .get(id=message_id)
+    )
     if message.agent.user_id != user.id or message.agent.client_id != client.id:
-        raise PermissionError("Only the agent that started this message may write to it")
+        raise PermissionError(
+            "Only the agent that started this message may write to it"
+        )
     if not message.is_streaming:
         raise ValueError("This message is finished and cannot be modified")
     return message
@@ -72,10 +107,19 @@ def owned_streaming_message(*, organization, user, client, message_id) -> models
 
 def append_delta(message_id: int, delta: str) -> int:
     """Append ``delta`` server-side in one atomic UPDATE. Returns rows updated (0 if finished meanwhile)."""
-    return models.Message.objects.for_write().filter(id=message_id, is_streaming=True).update(text=Concat(F("text"), Value(delta), output_field=TextField()))
+    return (
+        models.Message.objects.for_write()
+        .filter(id=message_id, is_streaming=True)
+        .update(text=Concat(F("text"), Value(delta), output_field=TextField()))
+    )
 
 
-def finish_message(message: models.Message, *, text: Optional[str] = None, structures: Optional[Iterable] = None) -> models.Message:
+def finish_message(
+    message: models.Message,
+    *,
+    text: str | None = None,
+    structures: Iterable | None = None,
+) -> models.Message:
     """Close a streaming message, optionally replacing its text with the final version.
 
     The structures are attached while it is still streaming (no signal goes out for a message
@@ -97,9 +141,13 @@ def finish_message(message: models.Message, *, text: Optional[str] = None, struc
     return message
 
 
-def signal_for(kind: RoomEventKind, message: models.Message) -> tuple[MessageSignal, list[str]]:
+def signal_for(
+    kind: RoomEventKind, message: models.Message
+) -> tuple[MessageSignal, list[str]]:
     """The channel payload and group announcing ``kind`` for ``message``."""
-    return MessageSignal(kind=kind, room=message.room_id, message=message.id), [room_group(message.room_id)]
+    return MessageSignal(kind=kind, room=message.room_id, message=message.id), [
+        room_group(message.room_id)
+    ]
 
 
 def announce(kind: RoomEventKind, message: models.Message) -> None:

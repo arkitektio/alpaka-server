@@ -13,33 +13,46 @@ model/tool parameters from the database.
 
 import contextlib
 import json
+import logging
 import time
-from typing import Any, AsyncGenerator, AsyncIterable, Awaitable, Callable, Optional, Union, Tuple
-from django.http import JsonResponse, StreamingHttpResponse, HttpRequest
-from django.views.decorators.csrf import csrf_exempt
+from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable
+from typing import (
+    Any,
+)
+
+import litellm
+from asgiref.sync import sync_to_async
 from authentikate.errors import FullMembershipRequired
-from authentikate.scoped import require_full_member
-from authentikate.utils import authenticate_header_or_none
 from authentikate.expand import (
-    aexpand_user_from_token,
     aexpand_client_from_token,
     aexpand_organization_from_token,
+    aexpand_user_from_token,
 )
-from authentikate.models import User, Organization
-import logging
-import litellm
+from authentikate.models import Organization, User
+from authentikate.scoped import require_full_member
+from authentikate.utils import authenticate_header_or_none
+from django.http import HttpRequest, JsonResponse, StreamingHttpResponse
+from django.views.decorators.csrf import csrf_exempt
 from litellm.constants import OPENAI_CHAT_COMPLETION_PARAMS, OPENAI_EMBEDDING_PARAMS
 from litellm.types.utils import all_litellm_params
-from asgiref.sync import sync_to_async
+
 from llm import models as llm_models
 from llm.enums import DefaultKind, UsageEndpoint
 from llm.manager import NoDefaultModel, get_default_llm_model_for_user
-from llm.usage import BudgetExceeded, aenforce_budget, arecord_usage, usage_from_response, usage_from_stream
+from llm.usage import (
+    BudgetExceeded,
+    aenforce_budget,
+    arecord_usage,
+    usage_from_response,
+    usage_from_stream,
+)
 
 logger = logging.getLogger(__name__)
 
 #: Where a client that sent a decision model to an OpenAI route should go instead.
-DECISION_ENDPOINT_HINT = "the systemone endpoint (llm/systemone/v1/systemone) or the decide mutation"
+DECISION_ENDPOINT_HINT = (
+    "the systemone endpoint (llm/systemone/v1/systemone) or the decide mutation"
+)
 
 
 class AuthenticationError(Exception):
@@ -54,7 +67,9 @@ class ModelNotFoundError(Exception):
     pass
 
 
-async def authenticate_request(request: HttpRequest) -> Tuple[User, object, Organization]:
+async def authenticate_request(
+    request: HttpRequest,
+) -> tuple[User, object, Organization]:
     """
     Authenticate a request using JWT token from headers.
 
@@ -72,7 +87,9 @@ async def authenticate_request(request: HttpRequest) -> Tuple[User, object, Orga
         # called on its credentials, by its members only.
         require_full_member(token)
     except FullMembershipRequired as e:
-        raise AuthenticationError("A guest of the organization cannot call its models") from e
+        raise AuthenticationError(
+            "A guest of the organization cannot call its models"
+        ) from e
 
     try:
         user = await aexpand_user_from_token(token)
@@ -87,8 +104,8 @@ async def authenticate_request(request: HttpRequest) -> Tuple[User, object, Orga
 def create_openai_error_response(
     message: str,
     error_type: str = "invalid_request_error",
-    param: Optional[str] = None,
-    code: Optional[str] = None,
+    param: str | None = None,
+    code: str | None = None,
     status: int = 400,
 ) -> JsonResponse:
     """Create an OpenAI-compatible error response."""
@@ -103,7 +120,9 @@ def create_openai_error_response(
     return JsonResponse(error_body, status=status)
 
 
-def litellm_error_response(e: Exception, *, model: Optional[llm_models.LLMModel] = None) -> JsonResponse:
+def litellm_error_response(
+    e: Exception, *, model: llm_models.LLMModel | None = None
+) -> JsonResponse:
     """Map a litellm exception to an OpenAI-compatible error response.
 
     Surfaces the upstream provider and HTTP status where available so a failing
@@ -114,21 +133,37 @@ def litellm_error_response(e: Exception, *, model: Optional[llm_models.LLMModel]
     """
     ctx = f" for model '{model.llm_string}'" if model is not None else ""
     if isinstance(e, BudgetExceeded):
-        return create_openai_error_response(f"{e}", error_type="insufficient_quota", code="budget_exceeded", status=429)
+        return create_openai_error_response(
+            f"{e}", error_type="insufficient_quota", code="budget_exceeded", status=429
+        )
     if isinstance(e, litellm.exceptions.AuthenticationError):
-        return create_openai_error_response(f"Provider authentication failed{ctx}: {e}", error_type="authentication_error", status=401)
+        return create_openai_error_response(
+            f"Provider authentication failed{ctx}: {e}",
+            error_type="authentication_error",
+            status=401,
+        )
     if isinstance(e, litellm.exceptions.RateLimitError):
-        return create_openai_error_response(f"Rate limit exceeded{ctx}: {e}", error_type="rate_limit_error", status=429)
+        return create_openai_error_response(
+            f"Rate limit exceeded{ctx}: {e}", error_type="rate_limit_error", status=429
+        )
     if isinstance(e, litellm.exceptions.InvalidRequestError):
-        return create_openai_error_response(f"{e}", error_type="invalid_request_error", status=400)
+        return create_openai_error_response(
+            f"{e}", error_type="invalid_request_error", status=400
+        )
     if isinstance(e, litellm.exceptions.APIError):
         status = getattr(e, "status_code", None)
         upstream = getattr(e, "llm_provider", None) or "provider"
         msg = getattr(e, "message", None) or str(e)
         out_status = status if isinstance(status, int) and 400 <= status < 600 else 502
-        return create_openai_error_response(f"Upstream {upstream} returned {status}{ctx}: {msg}", error_type="api_error", status=out_status)
+        return create_openai_error_response(
+            f"Upstream {upstream} returned {status}{ctx}: {msg}",
+            error_type="api_error",
+            status=out_status,
+        )
     logger.exception("Unexpected LLM error")
-    return create_openai_error_response(f"Internal server error{ctx}: {e}", error_type="api_error", status=500)
+    return create_openai_error_response(
+        f"Internal server error{ctx}: {e}", error_type="api_error", status=500
+    )
 
 
 class DefaultModelNotConfiguredError(Exception):
@@ -138,7 +173,9 @@ class DefaultModelNotConfiguredError(Exception):
 
 
 @sync_to_async
-def get_model_by_id_or_name(model_identifier: str, organization: Organization, user: Optional[User] = None) -> Optional[llm_models.LLMModel]:
+def get_model_by_id_or_name(
+    model_identifier: str, organization: Organization, user: User | None = None
+) -> llm_models.LLMModel | None:
     """
     Get a model by its ID or model_id string.
 
@@ -162,11 +199,13 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
     # Handle special "alpaka/default" patterns
     if model_identifier.startswith("alpaka/default"):
         if user is None:
-            raise DefaultModelNotConfiguredError("User context required for default model lookup")
+            raise DefaultModelNotConfiguredError(
+                "User context required for default model lookup"
+            )
 
         # Parse the default type
         suffix = model_identifier.replace("alpaka/default", "")
-        kind: Optional[DefaultKind] = None
+        kind: DefaultKind | None = None
 
         if suffix in ("", "-chat", "-text"):
             kind = DefaultKind.TEXT_GENERATION
@@ -183,7 +222,9 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
             except NoDefaultModel as e:
                 raise DefaultModelNotConfiguredError(str(e)) from e
 
-    scoped = llm_models.LLMModel.objects.for_organization(organization).select_related("provider")
+    scoped = llm_models.LLMModel.objects.for_organization(organization).select_related(
+        "provider"
+    )
 
     # First try to get by database ID
     try:
@@ -201,7 +242,10 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
     # display name is also accepted for backward compatibility.
     if "/" in model_identifier:
         prefix, model_id = model_identifier.split("/", 1)
-        match = scoped.filter(provider__kind__in=llm_models.KINDS_BY_LITELLM_PREFIX.get(prefix, []), model_id=model_id).first()
+        match = scoped.filter(
+            provider__kind__in=llm_models.KINDS_BY_LITELLM_PREFIX.get(prefix, []),
+            model_id=model_id,
+        ).first()
         if match is None:
             match = scoped.filter(provider__name=prefix, model_id=model_id).first()
         return match
@@ -210,16 +254,26 @@ def get_model_by_id_or_name(model_identifier: str, organization: Organization, u
 
 
 @sync_to_async
-def get_all_models_for_organization(organization: Organization) -> list[llm_models.LLMModel]:
+def get_all_models_for_organization(
+    organization: Organization,
+) -> list[llm_models.LLMModel]:
     """Get the models an OpenAI client can call: every model except decision models.
 
     Decision models have their own listing under ``systemone/v1/models``.
     """
-    return [model for model in llm_models.LLMModel.objects.for_organization(organization).select_related("provider") if not model.is_decision_model]
+    return [
+        model
+        for model in llm_models.LLMModel.objects.for_organization(
+            organization
+        ).select_related("provider")
+        if not model.is_decision_model
+    ]
 
 
 @sync_to_async
-def get_default_model(user: User, organization: Organization, kind: DefaultKind) -> Optional[llm_models.LLMModel]:
+def get_default_model(
+    user: User, organization: Organization, kind: DefaultKind
+) -> llm_models.LLMModel | None:
     """Get the default model for a user and organization."""
     try:
         return get_default_llm_model_for_user(user, organization, kind)
@@ -269,12 +323,19 @@ async def openai_models_view(request: HttpRequest) -> JsonResponse:
         }
     """
     if request.method != "GET":
-        return create_openai_error_response("Only GET method is allowed", error_type="invalid_request_error", status=405)
+        return create_openai_error_response(
+            "Only GET method is allowed", error_type="invalid_request_error", status=405
+        )
 
     try:
         user, client, organization = await authenticate_request(request)
     except AuthenticationError as e:
-        return create_openai_error_response(str(e), error_type="authentication_error", code="invalid_api_key", status=401)
+        return create_openai_error_response(
+            str(e),
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status=401,
+        )
 
     try:
         models = await get_all_models_for_organization(organization)
@@ -282,9 +343,13 @@ async def openai_models_view(request: HttpRequest) -> JsonResponse:
         # Every other endpoint answers in the OpenAI error shape; an unguarded
         # database error here returned Django's HTML 500 instead.
         logger.exception("Could not list models")
-        return create_openai_error_response(f"Could not list models: {e}", error_type="api_error", status=500)
+        return create_openai_error_response(
+            f"Could not list models: {e}", error_type="api_error", status=500
+        )
 
-    return JsonResponse({"object": "list", "data": [model_to_openai_format(m) for m in models]})
+    return JsonResponse(
+        {"object": "list", "data": [model_to_openai_format(m) for m in models]}
+    )
 
 
 @csrf_exempt
@@ -297,30 +362,52 @@ async def openai_model_detail_view(request: HttpRequest, model_id: str) -> JsonR
     GET /v1/models/{model_id}
     """
     if request.method != "GET":
-        return create_openai_error_response("Only GET method is allowed", error_type="invalid_request_error", status=405)
+        return create_openai_error_response(
+            "Only GET method is allowed", error_type="invalid_request_error", status=405
+        )
 
     try:
         user, client, organization = await authenticate_request(request)
     except AuthenticationError as e:
-        return create_openai_error_response(str(e), error_type="authentication_error", code="invalid_api_key", status=401)
+        return create_openai_error_response(
+            str(e),
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status=401,
+        )
 
     try:
         model = await get_model_by_id_or_name(model_id, organization, user)
     except DefaultModelNotConfiguredError as e:
-        return create_openai_error_response(str(e), error_type="invalid_request_error", code="default_model_not_configured", param="model", status=400)
+        return create_openai_error_response(
+            str(e),
+            error_type="invalid_request_error",
+            code="default_model_not_configured",
+            param="model",
+            status=400,
+        )
     except Exception as e:
         logger.exception("Could not resolve model %r", model_id)
-        return create_openai_error_response(f"Could not resolve model: {e}", error_type="api_error", status=500)
+        return create_openai_error_response(
+            f"Could not resolve model: {e}", error_type="api_error", status=500
+        )
 
     if not model or model.is_decision_model:
         # Decision models are hidden from the OpenAI listing, so they are not found here either.
-        return create_openai_error_response(f"Model '{model_id}' not found", error_type="invalid_request_error", code="model_not_found", status=404)
+        return create_openai_error_response(
+            f"Model '{model_id}' not found",
+            error_type="invalid_request_error",
+            code="model_not_found",
+            status=404,
+        )
 
     return JsonResponse(model_to_openai_format(model))
 
 
 @csrf_exempt
-async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonResponse, StreamingHttpResponse]:
+async def openai_chat_completions_view(
+    request: HttpRequest,
+) -> JsonResponse | StreamingHttpResponse:
     """
     OpenAI-compatible /v1/chat/completions endpoint.
 
@@ -344,25 +431,47 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         }
     """
     if request.method != "POST":
-        return create_openai_error_response("Only POST method is allowed", error_type="invalid_request_error", status=405)
+        return create_openai_error_response(
+            "Only POST method is allowed",
+            error_type="invalid_request_error",
+            status=405,
+        )
 
     try:
         user, client, organization = await authenticate_request(request)
     except AuthenticationError as e:
-        return create_openai_error_response(str(e), error_type="authentication_error", code="invalid_api_key", status=401)
+        return create_openai_error_response(
+            str(e),
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status=401,
+        )
 
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
-        return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+        return create_openai_error_response(
+            "Invalid JSON in request body",
+            error_type="invalid_request_error",
+            status=400,
+        )
     if not isinstance(payload, dict):
         # ``null``, a list or a bare scalar parses fine and then blows up on the
         # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
-        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
+        return create_openai_error_response(
+            "Request body must be a JSON object",
+            error_type="invalid_request_error",
+            status=400,
+        )
 
     # Validate required fields
     if "messages" not in payload:
-        return create_openai_error_response("Missing required field: messages", error_type="invalid_request_error", param="messages", status=400)
+        return create_openai_error_response(
+            "Missing required field: messages",
+            error_type="invalid_request_error",
+            param="messages",
+            status=400,
+        )
 
     # Get model
     model_identifier = payload.get("model")
@@ -370,19 +479,48 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
         try:
             model = await get_model_by_id_or_name(model_identifier, organization, user)
         except DefaultModelNotConfiguredError as e:
-            return create_openai_error_response(str(e), error_type="invalid_request_error", code="default_model_not_configured", param="model", status=400)
+            return create_openai_error_response(
+                str(e),
+                error_type="invalid_request_error",
+                code="default_model_not_configured",
+                param="model",
+                status=400,
+            )
         if not model:
-            return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
+            return create_openai_error_response(
+                f"Model '{model_identifier}' not found",
+                error_type="invalid_request_error",
+                code="model_not_found",
+                param="model",
+                status=404,
+            )
     else:
         # Use default model for chat
         model = await get_default_model(user, organization, DefaultKind.TEXT_GENERATION)
         if not model:
-            return create_openai_error_response("No model specified and no default model configured", error_type="invalid_request_error", param="model", status=400)
+            return create_openai_error_response(
+                "No model specified and no default model configured",
+                error_type="invalid_request_error",
+                param="model",
+                status=400,
+            )
 
     if model.is_decision_model:
-        return create_openai_error_response(f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}", error_type="invalid_request_error", code="model_not_generative", param="model", status=400)
+        return create_openai_error_response(
+            f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}",
+            error_type="invalid_request_error",
+            code="model_not_generative",
+            param="model",
+            status=400,
+        )
     if not model.is_available:
-        return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
+        return create_openai_error_response(
+            f"Model '{model.llm_string}' is not currently available",
+            error_type="invalid_request_error",
+            code="model_not_available",
+            param="model",
+            status=503,
+        )
 
     stream = bool(payload.get("stream", False))
 
@@ -395,7 +533,13 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
     )
 
     started = time.monotonic()
-    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_CHAT)
+    accounting = dict(
+        organization=organization,
+        user=user,
+        client=client,
+        model=model,
+        endpoint=UsageEndpoint.REST_CHAT,
+    )
 
     try:
         await aenforce_budget(organization, user, model)
@@ -408,14 +552,24 @@ async def openai_chat_completions_view(request: HttpRequest) -> Union[JsonRespon
                 litellm_kwargs.setdefault("drop_params", True)
             response = await litellm.acompletion(**litellm_kwargs)
 
-            async def on_complete(chunks: list, error: Optional[BaseException]) -> None:
-                facts = await sync_to_async(usage_from_stream)(chunks, messages=payload["messages"], model_string=model.llm_string)
-                await arecord_usage(**accounting, facts=facts, started_at=started, error=error)
+            async def on_complete(chunks: list, error: BaseException | None) -> None:
+                facts = await sync_to_async(usage_from_stream)(
+                    chunks, messages=payload["messages"], model_string=model.llm_string
+                )
+                await arecord_usage(
+                    **accounting, facts=facts, started_at=started, error=error
+                )
 
-            return _streaming_response(response, on_complete=on_complete, hide_usage_chunks=injected_usage)
+            return _streaming_response(
+                response, on_complete=on_complete, hide_usage_chunks=injected_usage
+            )
         else:
             response = await litellm.acompletion(**litellm_kwargs)
-            await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string), started_at=started)
+            await arecord_usage(
+                **accounting,
+                facts=usage_from_response(response, model_string=model.llm_string),
+                started_at=started,
+            )
             return JsonResponse(response.model_dump())
     except Exception as e:
         if not isinstance(e, BudgetExceeded):
@@ -454,13 +608,22 @@ ROUTING_KEYS = {
 #:
 #: Keys litellm does not know at all still pass through, so this stays a tunnel:
 #: provider-specific body params keep working without being enumerated here.
-RESERVED_LITELLM_KEYS = (set(all_litellm_params) - (set(OPENAI_CHAT_COMPLETION_PARAMS) - ROUTING_KEYS)) | ROUTING_KEYS
+RESERVED_LITELLM_KEYS = (
+    set(all_litellm_params) - (set(OPENAI_CHAT_COMPLETION_PARAMS) - ROUTING_KEYS)
+) | ROUTING_KEYS
 
 #: Embeddings accept a much smaller OpenAI surface.
 RESERVED_EMBEDDING_KEYS = RESERVED_LITELLM_KEYS - set(OPENAI_EMBEDDING_PARAMS)
 
 
-def _build_litellm_kwargs(payload: dict, model: llm_models.LLMModel, *, handled: set, reserved: Optional[set] = None, **explicit) -> dict:
+def _build_litellm_kwargs(
+    payload: dict,
+    model: llm_models.LLMModel,
+    *,
+    handled: set,
+    reserved: set | None = None,
+    **explicit,
+) -> dict:
     """Assemble litellm kwargs: provider routing/credentials, the explicitly
     handled fields, and every remaining request-body key forwarded verbatim.
 
@@ -483,7 +646,7 @@ def _build_litellm_kwargs(payload: dict, model: llm_models.LLMModel, *, handled:
     return kwargs
 
 
-StreamCallback = Callable[[list, Optional[BaseException]], Awaitable[None]]
+StreamCallback = Callable[[list, BaseException | None], Awaitable[None]]
 
 
 async def _aclose_stream(response: Any) -> None:
@@ -502,7 +665,12 @@ async def _aclose_stream(response: Any) -> None:
             return
 
 
-def _streaming_response(response: AsyncIterable[Any], *, on_complete: Optional[StreamCallback] = None, hide_usage_chunks: bool = False) -> StreamingHttpResponse:
+def _streaming_response(
+    response: AsyncIterable[Any],
+    *,
+    on_complete: StreamCallback | None = None,
+    hide_usage_chunks: bool = False,
+) -> StreamingHttpResponse:
     """Wrap an already-started litellm stream as SSE.
 
     The upstream call is awaited by the caller *before* this response is
@@ -519,12 +687,16 @@ def _streaming_response(response: AsyncIterable[Any], *, on_complete: Optional[S
 
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         chunks: list = []
-        error: Optional[BaseException] = None
+        error: BaseException | None = None
         try:
             async for chunk in response:
                 chunks.append(chunk)
                 chunk_data = chunk.model_dump()
-                if hide_usage_chunks and not chunk_data.get("choices") and chunk_data.get("usage"):
+                if (
+                    hide_usage_chunks
+                    and not chunk_data.get("choices")
+                    and chunk_data.get("usage")
+                ):
                     continue
                 yield f"data: {json.dumps(chunk_data)}\n\n".encode()
             yield b"data: [DONE]\n\n"
@@ -567,7 +739,9 @@ def _streaming_response(response: AsyncIterable[Any], *, on_complete: Optional[S
 
 
 @csrf_exempt
-async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, StreamingHttpResponse]:
+async def openai_completions_view(
+    request: HttpRequest,
+) -> JsonResponse | StreamingHttpResponse:
     """
     OpenAI-compatible /v1/completions endpoint (legacy).
 
@@ -584,42 +758,93 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
         }
     """
     if request.method != "POST":
-        return create_openai_error_response("Only POST method is allowed", error_type="invalid_request_error", status=405)
+        return create_openai_error_response(
+            "Only POST method is allowed",
+            error_type="invalid_request_error",
+            status=405,
+        )
 
     try:
         user, client, organization = await authenticate_request(request)
     except AuthenticationError as e:
-        return create_openai_error_response(str(e), error_type="authentication_error", code="invalid_api_key", status=401)
+        return create_openai_error_response(
+            str(e),
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status=401,
+        )
 
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
-        return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+        return create_openai_error_response(
+            "Invalid JSON in request body",
+            error_type="invalid_request_error",
+            status=400,
+        )
     if not isinstance(payload, dict):
         # ``null``, a list or a bare scalar parses fine and then blows up on the
         # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
-        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
+        return create_openai_error_response(
+            "Request body must be a JSON object",
+            error_type="invalid_request_error",
+            status=400,
+        )
 
     if "prompt" not in payload:
-        return create_openai_error_response("Missing required field: prompt", error_type="invalid_request_error", param="prompt", status=400)
+        return create_openai_error_response(
+            "Missing required field: prompt",
+            error_type="invalid_request_error",
+            param="prompt",
+            status=400,
+        )
 
     model_identifier = payload.get("model")
     if model_identifier:
         try:
             model = await get_model_by_id_or_name(model_identifier, organization, user)
         except DefaultModelNotConfiguredError as e:
-            return create_openai_error_response(str(e), error_type="invalid_request_error", code="default_model_not_configured", param="model", status=400)
+            return create_openai_error_response(
+                str(e),
+                error_type="invalid_request_error",
+                code="default_model_not_configured",
+                param="model",
+                status=400,
+            )
         if not model:
-            return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
+            return create_openai_error_response(
+                f"Model '{model_identifier}' not found",
+                error_type="invalid_request_error",
+                code="model_not_found",
+                param="model",
+                status=404,
+            )
     else:
         model = await get_default_model(user, organization, DefaultKind.TEXT_GENERATION)
         if not model:
-            return create_openai_error_response("No model specified and no default model configured", error_type="invalid_request_error", param="model", status=400)
+            return create_openai_error_response(
+                "No model specified and no default model configured",
+                error_type="invalid_request_error",
+                param="model",
+                status=400,
+            )
 
     if model.is_decision_model:
-        return create_openai_error_response(f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}", error_type="invalid_request_error", code="model_not_generative", param="model", status=400)
+        return create_openai_error_response(
+            f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}",
+            error_type="invalid_request_error",
+            code="model_not_generative",
+            param="model",
+            status=400,
+        )
     if not model.is_available:
-        return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
+        return create_openai_error_response(
+            f"Model '{model.llm_string}' is not currently available",
+            error_type="invalid_request_error",
+            code="model_not_available",
+            param="model",
+            status=503,
+        )
 
     stream = bool(payload.get("stream", False))
 
@@ -632,7 +857,13 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
     )
 
     started = time.monotonic()
-    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_COMPLETION)
+    accounting = dict(
+        organization=organization,
+        user=user,
+        client=client,
+        model=model,
+        endpoint=UsageEndpoint.REST_COMPLETION,
+    )
 
     try:
         await aenforce_budget(organization, user, model)
@@ -653,14 +884,22 @@ async def openai_completions_view(request: HttpRequest) -> Union[JsonResponse, S
                 litellm_kwargs.setdefault("drop_params", True)
             response = await litellm.atext_completion(**litellm_kwargs)
 
-            async def on_complete(chunks: list, error: Optional[BaseException]) -> None:
-                facts = await sync_to_async(usage_from_stream)(chunks, model_string=model.llm_string, text_completion=True)
-                await arecord_usage(**accounting, facts=facts, started_at=started, error=error)
+            async def on_complete(chunks: list, error: BaseException | None) -> None:
+                facts = await sync_to_async(usage_from_stream)(
+                    chunks, model_string=model.llm_string, text_completion=True
+                )
+                await arecord_usage(
+                    **accounting, facts=facts, started_at=started, error=error
+                )
 
             return _streaming_response(response, on_complete=on_complete)
         else:
             response = await litellm.atext_completion(**litellm_kwargs)
-            await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string), started_at=started)
+            await arecord_usage(
+                **accounting,
+                facts=usage_from_response(response, model_string=model.llm_string),
+                started_at=started,
+            )
             return JsonResponse(response.model_dump())
     except Exception as e:
         if not isinstance(e, BudgetExceeded):
@@ -685,42 +924,93 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
         }
     """
     if request.method != "POST":
-        return create_openai_error_response("Only POST method is allowed", error_type="invalid_request_error", status=405)
+        return create_openai_error_response(
+            "Only POST method is allowed",
+            error_type="invalid_request_error",
+            status=405,
+        )
 
     try:
         user, client, organization = await authenticate_request(request)
     except AuthenticationError as e:
-        return create_openai_error_response(str(e), error_type="authentication_error", code="invalid_api_key", status=401)
+        return create_openai_error_response(
+            str(e),
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status=401,
+        )
 
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
-        return create_openai_error_response("Invalid JSON in request body", error_type="invalid_request_error", status=400)
+        return create_openai_error_response(
+            "Invalid JSON in request body",
+            error_type="invalid_request_error",
+            status=400,
+        )
     if not isinstance(payload, dict):
         # ``null``, a list or a bare scalar parses fine and then blows up on the
         # first ``payload.get`` as an HTML 500 instead of an OpenAI-shaped error.
-        return create_openai_error_response("Request body must be a JSON object", error_type="invalid_request_error", status=400)
+        return create_openai_error_response(
+            "Request body must be a JSON object",
+            error_type="invalid_request_error",
+            status=400,
+        )
 
     if "input" not in payload:
-        return create_openai_error_response("Missing required field: input", error_type="invalid_request_error", param="input", status=400)
+        return create_openai_error_response(
+            "Missing required field: input",
+            error_type="invalid_request_error",
+            param="input",
+            status=400,
+        )
 
     model_identifier = payload.get("model")
     if model_identifier:
         try:
             model = await get_model_by_id_or_name(model_identifier, organization, user)
         except DefaultModelNotConfiguredError as e:
-            return create_openai_error_response(str(e), error_type="invalid_request_error", code="default_model_not_configured", param="model", status=400)
+            return create_openai_error_response(
+                str(e),
+                error_type="invalid_request_error",
+                code="default_model_not_configured",
+                param="model",
+                status=400,
+            )
         if not model:
-            return create_openai_error_response(f"Model '{model_identifier}' not found", error_type="invalid_request_error", code="model_not_found", param="model", status=404)
+            return create_openai_error_response(
+                f"Model '{model_identifier}' not found",
+                error_type="invalid_request_error",
+                code="model_not_found",
+                param="model",
+                status=404,
+            )
     else:
         model = await get_default_model(user, organization, DefaultKind.EMBEDDING)
         if not model:
-            return create_openai_error_response("No model specified and no default embedding model configured", error_type="invalid_request_error", param="model", status=400)
+            return create_openai_error_response(
+                "No model specified and no default embedding model configured",
+                error_type="invalid_request_error",
+                param="model",
+                status=400,
+            )
 
     if model.is_decision_model:
-        return create_openai_error_response(f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}", error_type="invalid_request_error", code="model_not_generative", param="model", status=400)
+        return create_openai_error_response(
+            f"Model '{model.model_id}' is a decision model and cannot generate; call it through {DECISION_ENDPOINT_HINT}",
+            error_type="invalid_request_error",
+            code="model_not_generative",
+            param="model",
+            status=400,
+        )
     if not model.is_available:
-        return create_openai_error_response(f"Model '{model.llm_string}' is not currently available", error_type="invalid_request_error", code="model_not_available", param="model", status=503)
+        return create_openai_error_response(
+            f"Model '{model.llm_string}' is not currently available",
+            error_type="invalid_request_error",
+            code="model_not_available",
+            param="model",
+            status=503,
+        )
 
     litellm_kwargs = _build_litellm_kwargs(
         payload,
@@ -732,12 +1022,24 @@ async def openai_embeddings_view(request: HttpRequest) -> JsonResponse:
     )
 
     started = time.monotonic()
-    accounting = dict(organization=organization, user=user, client=client, model=model, endpoint=UsageEndpoint.REST_EMBEDDING)
+    accounting = dict(
+        organization=organization,
+        user=user,
+        client=client,
+        model=model,
+        endpoint=UsageEndpoint.REST_EMBEDDING,
+    )
 
     try:
         await aenforce_budget(organization, user, model)
         response = await litellm.aembedding(**litellm_kwargs)
-        await arecord_usage(**accounting, facts=usage_from_response(response, model_string=model.llm_string, call_type="embedding"), started_at=started)
+        await arecord_usage(
+            **accounting,
+            facts=usage_from_response(
+                response, model_string=model.llm_string, call_type="embedding"
+            ),
+            started_at=started,
+        )
         return JsonResponse(response.model_dump())
     except Exception as e:
         if not isinstance(e, BudgetExceeded):
@@ -757,12 +1059,12 @@ async def models_view(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
-async def generate_view(request: HttpRequest) -> Union[JsonResponse, StreamingHttpResponse]:
+async def generate_view(request: HttpRequest) -> JsonResponse | StreamingHttpResponse:
     """Legacy generate endpoint - now uses LiteLLM."""
     return await openai_completions_view(request)
 
 
 @csrf_exempt
-async def chat_view(request: HttpRequest) -> Union[JsonResponse, StreamingHttpResponse]:
+async def chat_view(request: HttpRequest) -> JsonResponse | StreamingHttpResponse:
     """Legacy chat endpoint - now uses LiteLLM."""
     return await openai_chat_completions_view(request)

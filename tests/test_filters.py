@@ -5,9 +5,9 @@ import datetime
 
 import pytest
 from asgiref.sync import sync_to_async
+from authentikate.models import Client, Organization, User
 from django.utils import timezone
 
-from authentikate.models import Client, Organization, User
 from kammer import models
 
 
@@ -21,10 +21,14 @@ def seed():
 
     structure = models.Structure.objects.create(identifier="some/structure", object=42)
 
-    room = models.Room.objects.for_write().create(title="Weather room", organization=org, creator=user)
+    room = models.Room.objects.for_write().create(
+        title="Weather room", organization=org, creator=user
+    )
     room.contextual_structures.add(structure)
 
-    other_room = models.Room.objects.for_write().create(title="Cooking room", organization=org, creator=user)
+    other_room = models.Room.objects.for_write().create(
+        title="Cooking room", organization=org, creator=user
+    )
 
     agent = models.Agent.objects.for_write().create(room=room, client=client, user=user)
 
@@ -32,10 +36,14 @@ def seed():
     texts = ["hello world", "goodbye world", "hello again"]
     messages = []
     for i, text in enumerate(texts):
-        message = models.Message.objects.for_write().create(room=room, agent=agent, text=text)
+        message = models.Message.objects.for_write().create(
+            room=room, agent=agent, text=text
+        )
         # auto_now_add fixes created_at on insert; overwrite it so ordering is
         # deterministic regardless of how fast the inserts ran.
-        models.Message.objects.for_write().filter(id=message.id).update(created_at=base + datetime.timedelta(seconds=i))
+        models.Message.objects.for_write().filter(id=message.id).update(
+            created_at=base + datetime.timedelta(seconds=i)
+        )
         messages.append(message)
 
     return {
@@ -113,7 +121,9 @@ async def test_message_order_created_at(aexecute):
 
     desc = await aexecute(query, {"ordering": [{"createdAt": "DESC"}]})
     assert desc.data, desc.errors
-    assert [m["id"] for m in desc.data["messages"]] == list(reversed(ids_in_creation_order))
+    assert [m["id"] for m in desc.data["messages"]] == list(
+        reversed(ids_in_creation_order)
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -136,7 +146,10 @@ async def test_message_filter_and_order_combined(aexecute):
     )
 
     assert result.data, result.errors
-    assert [m["text"] for m in result.data["messages"]] == ["hello again", "hello world"]
+    assert [m["text"] for m in result.data["messages"]] == [
+        "hello again",
+        "hello world",
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -239,12 +252,17 @@ async def test_room_reads_back_what_it_talks_about(aexecute):
     """``Room.talkingAbout`` reads the structures ``createRoom``/``talkingAbout`` write and filter on."""
     await seed()
 
-    result = await aexecute("query { rooms(ordering: [{ title: ASC }]) { title talkingAbout { identifier object } } }")
+    result = await aexecute(
+        "query { rooms(ordering: [{ title: ASC }]) { title talkingAbout { identifier object } } }"
+    )
 
     assert result.data, result.errors
     assert result.data["rooms"] == [
         {"title": "Cooking room", "talkingAbout": []},
-        {"title": "Weather room", "talkingAbout": [{"identifier": "some/structure", "object": 42}]},
+        {
+            "title": "Weather room",
+            "talkingAbout": [{"identifier": "some/structure", "object": 42}],
+        },
     ]
 
 
@@ -261,23 +279,45 @@ async def test_rooms_order_by_their_latest_message(aexecute):
 
     @sync_to_async
     def age_the_rooms():
-        models.Room.objects.for_write().filter(id=data["room"].id).update(created_at=timezone.now() - datetime.timedelta(days=10))
-        models.Room.objects.for_write().filter(id=data["other_room"].id).update(created_at=timezone.now() - datetime.timedelta(days=1))
-        newest = models.Message.objects.for_write().filter(room=data["room"]).order_by("-created_at").first()
+        models.Room.objects.for_write().filter(id=data["room"].id).update(
+            created_at=timezone.now() - datetime.timedelta(days=10)
+        )
+        models.Room.objects.for_write().filter(id=data["other_room"].id).update(
+            created_at=timezone.now() - datetime.timedelta(days=1)
+        )
+        newest = (
+            models.Message.objects.for_write()
+            .filter(room=data["room"])
+            .order_by("-created_at")
+            .first()
+        )
         empty = models.Room.objects.for_write().get(id=data["other_room"].id)
         return newest.created_at, empty.created_at
 
     newest_message, empty_created = await age_the_rooms()
 
-    result = await aexecute("query { rooms(ordering: [{ lastMessageAt: DESC }]) { title lastActivity } }")
+    result = await aexecute(
+        "query { rooms(ordering: [{ lastMessageAt: DESC }]) { title lastActivity } }"
+    )
 
     assert result.data, result.errors
-    assert [row["title"] for row in result.data["rooms"]] == ["Weather room", "Cooking room"]
-    activity = {row["title"]: datetime.datetime.fromisoformat(row["lastActivity"]) for row in result.data["rooms"]}
+    assert [row["title"] for row in result.data["rooms"]] == [
+        "Weather room",
+        "Cooking room",
+    ]
+    activity = {
+        row["title"]: datetime.datetime.fromisoformat(row["lastActivity"])
+        for row in result.data["rooms"]
+    }
     assert activity == {"Weather room": newest_message, "Cooking room": empty_created}
 
-    oldest_first = await aexecute("query { rooms(ordering: [{ lastMessageAt: ASC }]) { title } }")
-    assert [row["title"] for row in oldest_first.data["rooms"]] == ["Cooking room", "Weather room"]
+    oldest_first = await aexecute(
+        "query { rooms(ordering: [{ lastMessageAt: ASC }]) { title } }"
+    )
+    assert [row["title"] for row in oldest_first.data["rooms"]] == [
+        "Cooking room",
+        "Weather room",
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -286,13 +326,18 @@ async def test_rooms_count_their_messages(aexecute):
     """``messageCount`` counts a room's messages in the list and on a single room, so a card need not fetch them."""
     data = await seed()
 
-    listed = await aexecute("query { rooms(ordering: [{ title: ASC }]) { title messageCount } }")
+    listed = await aexecute(
+        "query { rooms(ordering: [{ title: ASC }]) { title messageCount } }"
+    )
     assert listed.data, listed.errors
     assert listed.data["rooms"] == [
         {"title": "Cooking room", "messageCount": 0},
         {"title": "Weather room", "messageCount": 3},
     ]
 
-    single = await aexecute("query ($id: ID!) { room(id: $id) { messageCount } }", {"id": str(data["room"].id)})
+    single = await aexecute(
+        "query ($id: ID!) { room(id: $id) { messageCount } }",
+        {"id": str(data["room"].id)},
+    )
     assert single.data, single.errors
     assert single.data["room"]["messageCount"] == 3

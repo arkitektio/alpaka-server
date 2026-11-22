@@ -5,9 +5,9 @@ re-implemented model discovery; now it requires ``--organization`` and delegates
 to ``llm.logic.arefresh_provider_models``."""
 
 import pytest
+from authentikate.models import Organization
 from django.core.management import CommandError, call_command
 
-from authentikate.models import Organization
 from llm import models as llm_models
 from llm.management.commands import inspectollama
 
@@ -23,7 +23,11 @@ def test_inspectollama_creates_provider_for_organization(monkeypatch):
 
     monkeypatch.setattr(inspectollama, "arefresh_provider_models", fake_refresh)
 
-    call_command("inspectollama", organization="static_issuer#cmd_org", url="http://ollama.test:11434")
+    call_command(
+        "inspectollama",
+        organization="static_issuer#cmd_org",
+        url="http://ollama.test:11434",
+    )
 
     provider = llm_models.Provider.objects.for_organization(org).get(name="ollama")
     assert provider.kind == "ollama"
@@ -31,8 +35,15 @@ def test_inspectollama_creates_provider_for_organization(monkeypatch):
     assert seen["provider"].id == provider.id
 
     # Re-running is idempotent (update_or_create on (organization, name)).
-    call_command("inspectollama", organization="static_issuer#cmd_org", url="http://ollama.test:11434")
-    assert llm_models.Provider.objects.for_organization(org).filter(name="ollama").count() == 1
+    call_command(
+        "inspectollama",
+        organization="static_issuer#cmd_org",
+        url="http://ollama.test:11434",
+    )
+    assert (
+        llm_models.Provider.objects.for_organization(org).filter(name="ollama").count()
+        == 1
+    )
 
 
 @pytest.mark.django_db(transaction=True)

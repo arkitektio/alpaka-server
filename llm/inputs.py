@@ -1,8 +1,8 @@
 import decimal
 
 import strawberry
-from typing import Optional, List
 from strawberry import scalars
+
 from llm import enums
 
 
@@ -10,12 +10,12 @@ from llm import enums
 class ProviderInput:
     """A large language model provider"""
 
-    description: Optional[str] = None
-    name: Optional[str] = None
+    description: str | None = None
+    name: str | None = None
     kind: enums.ProviderKind
-    api_key: Optional[str] = None
-    api_base: Optional[str] = None
-    additional_config: Optional[scalars.JSON] = None
+    api_key: str | None = None
+    api_base: str | None = None
+    additional_config: scalars.JSON | None = None
 
 
 @strawberry.input(description="A large language model function defintion")
@@ -23,8 +23,8 @@ class FunctionDefinitionInput:
     """A function definition for a large language model"""
 
     name: str
-    description: Optional[str] = None
-    parameters: Optional[scalars.JSON] = None  # JSON Schema object
+    description: str | None = None
+    parameters: scalars.JSON | None = None  # JSON Schema object
 
 
 @strawberry.input(description="A large language model function call")
@@ -60,11 +60,11 @@ class ChatMessageInput:
     """A chat message input for a large language model"""
 
     role: enums.Role
-    content: Optional[str] = None
-    name: Optional[str] = None
-    tool_call_id: Optional[str] = None
-    function_call: Optional[FunctionCallInput] = None
-    tool_calls: Optional[List[ToolCallInput]] = None
+    content: str | None = None
+    name: str | None = None
+    tool_call_id: str | None = None
+    function_call: FunctionCallInput | None = None
+    tool_calls: list[ToolCallInput] | None = None
 
 
 @strawberry.input(description="A chat completion request")
@@ -75,18 +75,18 @@ class ChatInput:
     endpoint accepts, so the two front doors take the same request.
     """
 
-    messages: List[ChatMessageInput]
+    messages: list[ChatMessageInput]
     model: strawberry.ID | None = None
-    tools: Optional[List[ToolInput]] = None
-    tool_choice: Optional[scalars.JSON] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    top_p: Optional[float] = None
-    frequency_penalty: Optional[float] = None
-    presence_penalty: Optional[float] = None
-    stop: Optional[List[str]] = None
-    n: Optional[int] = None
-    response_format: Optional[scalars.JSON] = None
+    tools: list[ToolInput] | None = None
+    tool_choice: scalars.JSON | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    top_p: float | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    stop: list[str] | None = None
+    n: int | None = None
+    response_format: scalars.JSON | None = None
 
 
 @strawberry.input(description="The image")
@@ -107,23 +107,25 @@ class UseModelForInput:
 class CreateBudgetInput:
     """A new cap on LLM consumption. Applies to the whole organization unless narrowed to a user and/or a model."""
 
-    user: Optional[strawberry.ID] = None
-    model: Optional[strawberry.ID] = None
+    user: strawberry.ID | None = None
+    model: strawberry.ID | None = None
     period: enums.BudgetPeriod = enums.BudgetPeriod.MONTH
-    limit_tokens: Optional[int] = None
-    limit_cost: Optional[decimal.Decimal] = None
+    limit_tokens: int | None = None
+    limit_cost: decimal.Decimal | None = None
     hard: bool = True
 
 
-@strawberry.input(description="Changes to a budget; omitted fields are left as they are, explicit nulls clear a limit")
+@strawberry.input(
+    description="Changes to a budget; omitted fields are left as they are, explicit nulls clear a limit"
+)
 class UpdateBudgetInput:
     """A partial update of a budget."""
 
     id: strawberry.ID
-    period: Optional[enums.BudgetPeriod] = strawberry.UNSET
-    limit_tokens: Optional[int] = strawberry.UNSET
-    limit_cost: Optional[decimal.Decimal] = strawberry.UNSET
-    hard: Optional[bool] = strawberry.UNSET
+    period: enums.BudgetPeriod | None = strawberry.UNSET
+    limit_tokens: int | None = strawberry.UNSET
+    limit_cost: decimal.Decimal | None = strawberry.UNSET
+    hard: bool | None = strawberry.UNSET
 
 
 @strawberry.input(description="The budget to delete")
@@ -140,51 +142,85 @@ class DeleteBudgetInput:
 class NoulQuestionInput:
     """Answered with the probability that the statement is true."""
 
-    key: str = strawberry.field(description="Your name for this question; the answer carries it back")
-    instructions: str = strawberry.field(description="The yes/no question or statement to evaluate")
-    if_true: Optional[str] = strawberry.field(default=None, description="What counts as a yes")
-    if_false: Optional[str] = strawberry.field(default=None, description="What counts as a no")
+    key: str = strawberry.field(
+        description="Your name for this question; the answer carries it back"
+    )
+    instructions: str = strawberry.field(
+        description="The yes/no question or statement to evaluate"
+    )
+    if_true: str | None = strawberry.field(
+        default=None, description="What counts as a yes"
+    )
+    if_false: str | None = strawberry.field(
+        default=None, description="What counts as a no"
+    )
 
 
 @strawberry.input(description="One option a choice question can pick")
 class ChoiceOptionInput:
     """A named option, optionally described."""
 
-    key: str = strawberry.field(description="The option's name; the answer picks one of these")
-    description: Optional[str] = strawberry.field(default=None, description="When this option applies; without one the option is read by its name alone")
+    key: str = strawberry.field(
+        description="The option's name; the answer picks one of these"
+    )
+    description: str | None = strawberry.field(
+        default=None,
+        description="When this option applies; without one the option is read by its name alone",
+    )
 
 
 @strawberry.input(description="A question that picks one of several named options")
 class ChoiceQuestionInput:
     """Answered with the most probable option and the probability of each."""
 
-    key: str = strawberry.field(description="Your name for this question; the answer carries it back")
-    instructions: str = strawberry.field(description="What to decide when picking an option")
-    options: List[ChoiceOptionInput] = strawberry.field(description="The options to choose from")
+    key: str = strawberry.field(
+        description="Your name for this question; the answer carries it back"
+    )
+    instructions: str = strawberry.field(
+        description="What to decide when picking an option"
+    )
+    options: list[ChoiceOptionInput] = strawberry.field(
+        description="The options to choose from"
+    )
 
 
 @strawberry.input(description="A question that rates the state on an ordered rubric")
 class ScoreQuestionInput:
     """Answered with the expected level and the probability of each level."""
 
-    key: str = strawberry.field(description="Your name for this question; the answer carries it back")
+    key: str = strawberry.field(
+        description="Your name for this question; the answer carries it back"
+    )
     instructions: str = strawberry.field(description="What to rate")
-    levels: List[str] = strawberry.field(description="Descriptions of the rubric levels, lowest first; a level's position is its score, starting at zero")
+    levels: list[str] = strawberry.field(
+        description="Descriptions of the rubric levels, lowest first; a level's position is its score, starting at zero"
+    )
 
 
-@strawberry.input(one_of=True, description="A typed question: exactly one of noul, choice or score")
+@strawberry.input(
+    one_of=True, description="A typed question: exactly one of noul, choice or score"
+)
 class QuestionInput:
     """One question of a decide request."""
 
-    noul: Optional[NoulQuestionInput] = strawberry.UNSET
-    choice: Optional[ChoiceQuestionInput] = strawberry.UNSET
-    score: Optional[ScoreQuestionInput] = strawberry.UNSET
+    noul: NoulQuestionInput | None = strawberry.UNSET
+    choice: ChoiceQuestionInput | None = strawberry.UNSET
+    score: ScoreQuestionInput | None = strawberry.UNSET
 
 
-@strawberry.input(description="Typed questions to put to a decision model about one state")
+@strawberry.input(
+    description="Typed questions to put to a decision model about one state"
+)
 class DecideInput:
     """A decide request: every question is answered about the same state, in one call."""
 
-    state: scalars.JSON = strawberry.field(description="The content the questions refer to: a string, a JSON object or an array")
-    questions: List[QuestionInput] = strawberry.field(description="The questions to answer; their keys must be unique")
-    model: strawberry.ID | None = strawberry.field(default=None, description="The decision model to ask; defaults to the caller's default for `decision`")
+    state: scalars.JSON = strawberry.field(
+        description="The content the questions refer to: a string, a JSON object or an array"
+    )
+    questions: list[QuestionInput] = strawberry.field(
+        description="The questions to answer; their keys must be unique"
+    )
+    model: strawberry.ID | None = strawberry.field(
+        default=None,
+        description="The decision model to ask; defaults to the caller's default for `decision`",
+    )

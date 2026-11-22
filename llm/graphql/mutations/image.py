@@ -11,11 +11,11 @@ from kante.types import Info
 from llm import enums
 from llm.enums import DefaultKind, UsageEndpoint
 from llm.errors import ensure_generative, wrap_llm_errors
-from llm.usage import enforce_budget, track_usage
 from llm.graphql.mutations.chat import resolve_model
 from llm.inputs import ImageInput
 from llm.models import LLMModel
 from llm.types import ImageResponse
+from llm.usage import enforce_budget, track_usage
 
 #: Ceiling on a single image request. Image models are slow, so this is longer
 #: than the completion timeout, but it is still bounded.
@@ -40,7 +40,12 @@ def _generate_via_openrouter(model: LLMModel, description: str) -> tuple[str, di
         data=json.dumps(
             {
                 "model": model.model_id,
-                "messages": [{"role": "user", "content": _OPENROUTER_PROMPT.format(description=description)}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": _OPENROUTER_PROMPT.format(description=description),
+                    }
+                ],
                 "modalities": ["image", "text"],
                 "image_config": {"aspect_ratio": "16:9"},
             }
@@ -55,21 +60,29 @@ def _generate_via_openrouter(model: LLMModel, description: str) -> tuple[str, di
         with urllib.request.urlopen(request, timeout=IMAGE_TIMEOUT_SECONDS) as response:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        raise Exception(f"OpenRouter returned {e.code} for model '{model.llm_string}': {e.read().decode('utf-8', 'replace')}") from e
+        raise Exception(
+            f"OpenRouter returned {e.code} for model '{model.llm_string}': {e.read().decode('utf-8', 'replace')}"
+        ) from e
 
     choices = result.get("choices")
     if not choices:
-        raise Exception(f"OpenRouter returned no choices for model '{model.llm_string}'")
+        raise Exception(
+            f"OpenRouter returned no choices for model '{model.llm_string}'"
+        )
 
     images = choices[0]["message"].get("images")
     if not images:
-        raise Exception(f"OpenRouter returned no image for model '{model.llm_string}'. The model may not support image output.")
+        raise Exception(
+            f"OpenRouter returned no image for model '{model.llm_string}'. The model may not support image output."
+        )
 
     image_url = images[0]["image_url"]["url"]
     if image_url.startswith("data:"):
         return image_url.split(",")[-1], result
 
-    with urllib.request.urlopen(image_url, timeout=IMAGE_TIMEOUT_SECONDS) as image_response:
+    with urllib.request.urlopen(
+        image_url, timeout=IMAGE_TIMEOUT_SECONDS
+    ) as image_response:
         return base64.b64encode(image_response.read()).decode("utf-8"), result
 
 
@@ -85,7 +98,13 @@ def generate_image(info: Info, input: ImageInput) -> ImageResponse:
     # Outside wrap_llm_errors on purpose: a spent budget is not an LLM failure.
     enforce_budget(request.organization, request.user, image_model)
 
-    with track_usage(organization=request.organization, user=request.user, client=request.client, model=image_model, endpoint=UsageEndpoint.GRAPHQL_IMAGE) as track:
+    with track_usage(
+        organization=request.organization,
+        user=request.user,
+        client=request.client,
+        model=image_model,
+        endpoint=UsageEndpoint.GRAPHQL_IMAGE,
+    ) as track:
         if image_model.provider.kind == enums.ProviderKind.OPENROUTER:
             image, raw = _generate_via_openrouter(image_model, input.description)
             track.set(raw)

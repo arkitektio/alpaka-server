@@ -1,7 +1,8 @@
+import logging
 import os
+
 from .settings import *  # noqa
 from .settings import AUTHENTIKATE, DATABASES
-import logging
 
 # Real Postgres from tests/integration/docker-compose.yaml (spun up by the
 # `backend_stack` session fixture). A real DB is required because the harness
@@ -49,7 +50,16 @@ AUTHENTIKATE = {
             {
                 "iss": "rekuest",
                 "kind": "jwks_dict",
-                "jwks": {"keys": [{"crv": "Ed25519", "x": "72OPj2mAlLghqW-4x53Y8Dwp9QMltzTz4FYMLn2o-ws", "kty": "OKP", "kid": "alpaka-test-provenance"}]},
+                "jwks": {
+                    "keys": [
+                        {
+                            "crv": "Ed25519",
+                            "x": "72OPj2mAlLghqW-4x53Y8Dwp9QMltzTz4FYMLn2o-ws",
+                            "kty": "OKP",
+                            "kid": "alpaka-test-provenance",
+                        }
+                    ]
+                },
             }
         ],
         "audience": "*",
@@ -80,4 +90,3 @@ DATABASE_ROUTERS = []
 
 # Use in-memory channel layer for tests instead of Redis
 CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
-

@@ -10,32 +10,17 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from arkitekt_service import trust
 from joserfc.jwk import OKPKey
 
-from arkitekt_service import trust
 from alpaka_server.service import service
 
 EXPECTED = {
-    "@alpaka/room": [
-        "CREATED",
-        "DELETED"
-    ],
-    "@alpaka/message": [
-        "CREATED",
-        "UPDATED"
-    ],
-    "@alpaka/llmmodel": [
-        "CREATED",
-        "UPDATED"
-    ],
-    "@alpaka/chromacollection": [
-        "CREATED",
-        "DELETED"
-    ],
-    "@alpaka/provider": [
-        "CREATED",
-        "UPDATED"
-    ]
+    "@alpaka/room": ["CREATED", "DELETED"],
+    "@alpaka/message": ["CREATED", "UPDATED"],
+    "@alpaka/llmmodel": ["CREATED", "UPDATED"],
+    "@alpaka/chromacollection": ["CREATED", "DELETED"],
+    "@alpaka/provider": ["CREATED", "UPDATED"],
 }
 
 KEY = OKPKey.generate_key("Ed25519")
@@ -49,7 +34,14 @@ class _Intake:
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):  # noqa: N802
                 body = self.rfile.read(int(self.headers["Content-Length"]))
-                intake.received.append({"path": self.path, "headers": dict(self.headers), "body": body, "json": json.loads(body)})
+                intake.received.append(
+                    {
+                        "path": self.path,
+                        "headers": dict(self.headers),
+                        "body": body,
+                        "json": json.loads(body),
+                    }
+                )
                 self.send_response(202)
                 self.end_headers()
 
@@ -88,11 +80,15 @@ def intake(settings):
 def _organization():
     from authentikate.models import Organization
 
-    return Organization.objects.get_or_create(identifier="static_issuer#signals-test-org")[0]
+    return Organization.objects.get_or_create(
+        identifier="static_issuer#signals-test-org"
+    )[0]
 
 
 def test_the_manifest_declares_every_model_signal():
-    assert {s["identifier"]: s["kinds"] for s in service.manifest()["signals"]} == EXPECTED
+    assert {
+        s["identifier"]: s["kinds"] for s in service.manifest()["signals"]
+    } == EXPECTED
 
 
 def test_the_manifest_lists_what_alpaka_hosts_with_its_descriptors():
@@ -105,22 +101,42 @@ def test_the_manifest_lists_what_alpaka_hosts_with_its_descriptors():
         ("@alpaka/n_agents", "INT"),
     ]
     assert hosted["@alpaka/message"]["descriptors"] == [
-        {"key": "@alpaka/from_agent", "type": "BOOL", "description": "Whether an agent posted the message"},
-        {"key": "@alpaka/is_reply", "type": "BOOL", "description": "Whether it replies to another message"},
-        {"key": "@alpaka/attached_structures", "type": "LIST", "description": "The structures the message was posted about (e.g. @mikro/image), sorted, each once"},
+        {
+            "key": "@alpaka/from_agent",
+            "type": "BOOL",
+            "description": "Whether an agent posted the message",
+        },
+        {
+            "key": "@alpaka/is_reply",
+            "type": "BOOL",
+            "description": "Whether it replies to another message",
+        },
+        {
+            "key": "@alpaka/attached_structures",
+            "type": "LIST",
+            "description": "The structures the message was posted about (e.g. @mikro/image), sorted, each once",
+        },
     ]
-    assert [(d["key"], d["type"]) for d in hosted["@alpaka/llmmodel"]["descriptors"]] == [
+    assert [
+        (d["key"], d["type"]) for d in hosted["@alpaka/llmmodel"]["descriptors"]
+    ] == [
         ("@alpaka/features", "LIST"),
         ("@alpaka/input_modalities", "LIST"),
         ("@alpaka/output_modalities", "LIST"),
         ("@alpaka/provider_kind", "STRING"),
     ]
-    assert [(d["key"], d["type"]) for d in hosted["@alpaka/chromacollection"]["descriptors"]] == [("@alpaka/embedder", "STRING")]
+    assert [
+        (d["key"], d["type"]) for d in hosted["@alpaka/chromacollection"]["descriptors"]
+    ] == [("@alpaka/embedder", "STRING")]
     # A provider row holds an API key: it says only what kind it is.
-    assert [(d["key"], d["type"]) for d in hosted["@alpaka/provider"]["descriptors"]] == [("@alpaka/provider_kind", "STRING")]
+    assert [
+        (d["key"], d["type"]) for d in hosted["@alpaka/provider"]["descriptors"]
+    ] == [("@alpaka/provider_kind", "STRING")]
     # The keys a signal may carry are the keys its structure declares.
     for declared in service.manifest()["signals"]:
-        assert declared["descriptors"] == [d["key"] for d in hosted[declared["identifier"]]["descriptors"]]
+        assert declared["descriptors"] == [
+            d["key"] for d in hosted[declared["identifier"]]["descriptors"]
+        ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -128,10 +144,22 @@ def test_a_save_is_signalled_signed_by_this_instance(intake):
     from kammer.models import Room
 
     org = _organization()
-    obj = Room.all_objects.create(title='signalled', organization=org)  # a test fixture: no request org to scope by
+    obj = Room.all_objects.create(
+        title="signalled", organization=org
+    )  # a test fixture: no request org to scope by
 
     (received,) = intake.of("@alpaka/room")
-    assert (received["json"]["kind"], received["json"]["object"], received["json"]["organization"]) == ("CREATED", str(obj.pk), org.identifier)
+    assert (
+        received["json"]["kind"],
+        received["json"]["object"],
+        received["json"]["organization"],
+    ) == ("CREATED", str(obj.pk), org.identifier)
     assert received["path"] == "/agi/signal/alpaka"
-    verified = trust.verify("POST", received["path"], received["body"], received["headers"]["Authorization"], audience="rekuest")
+    verified = trust.verify(
+        "POST",
+        received["path"],
+        received["body"],
+        received["headers"]["Authorization"],
+        audience="rekuest",
+    )
     assert verified.issuer == "alpaka"

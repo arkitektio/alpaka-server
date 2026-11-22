@@ -36,9 +36,7 @@ def http_client():
 async def test_missing_header_is_401_with_early_return_message(http_client):
     resp = await http_client.get("/llm/v1/models")
     assert resp.status_code == 401
-    assert (
-        "Missing or invalid authentication token" in resp.json()["error"]["message"]
-    )
+    assert "Missing or invalid authentication token" in resp.json()["error"]["message"]
     assert resp.json()["error"]["type"] == "authentication_error"
 
 

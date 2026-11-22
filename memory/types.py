@@ -10,7 +10,13 @@ from memory.enums import MemoryKind
 from memory.owner import memory_owner
 
 
-@strawberry_django.type(models.Memory, description="Something an assistant remembers about the person who assigned its task", filters=filters.MemoryFilter, ordering=filters.MemoryOrder, pagination=True)
+@strawberry_django.type(
+    models.Memory,
+    description="Something an assistant remembers about the person who assigned its task",
+    filters=filters.MemoryFilter,
+    ordering=filters.MemoryOrder,
+    pagination=True,
+)
 class Memory:
     """A memory of the assigner's: only ever theirs, and only ever from a task they assigned."""
 

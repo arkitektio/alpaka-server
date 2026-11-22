@@ -1,11 +1,13 @@
 import datetime
+
 import strawberry
 import strawberry_django
+from django.db.models import Q
+from strawberry import auto
+
 from alpaka_server.descriptors import REQUIRES_DESCRIPTION, DescriptorConstraintInput
 from alpaka_server.descriptors import requires as descriptor_requires
-from django.db.models import Q
 from llm import enums, models
-from strawberry import auto
 
 
 @strawberry_django.order_type(models.LLMModel)
@@ -103,7 +105,9 @@ class UsageRecordOrder:
     latency_ms: auto
 
 
-@strawberry_django.filter_type(models.UsageRecord, description="Filter for usage records")
+@strawberry_django.filter_type(
+    models.UsageRecord, description="Filter for usage records"
+)
 class UsageRecordFilter:
     """Filter for UsageRecord"""
 

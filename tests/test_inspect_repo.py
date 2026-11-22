@@ -4,7 +4,9 @@ import pytest
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_create_room(aexecute, authenticated_context):
-    assert authenticated_context.request.organization is not None, "Organization should be set"
+    assert authenticated_context.request.organization is not None, (
+        "Organization should be set"
+    )
 
     query = """
         mutation {

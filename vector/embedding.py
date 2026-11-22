@@ -6,7 +6,7 @@ silently pointed at Ollama. Routing goes through the model's provider here, the
 same way ``llm.graphql.mutations.chat`` already routes completions.
 """
 
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
 
 from asgiref.sync import sync_to_async
 from authentikate.models import Client, Organization, User
@@ -29,7 +29,13 @@ def _organization_of(embedder: LLMModel) -> Organization:
     return embedder.provider.organization
 
 
-async def aembed_texts(embedder: LLMModel, texts: Sequence[str], *, user: Optional[User] = None, client: Optional[Client] = None) -> List[List[float]]:
+async def aembed_texts(
+    embedder: LLMModel,
+    texts: Sequence[str],
+    *,
+    user: User | None = None,
+    client: Client | None = None,
+) -> list[list[float]]:
     """Embed ``texts`` with ``embedder``, using that model's provider credentials.
 
     The call is budget-checked and recorded against the embedder's organization;
@@ -39,7 +45,13 @@ async def aembed_texts(embedder: LLMModel, texts: Sequence[str], *, user: Option
     organization = await _organization_of(embedder)
     await aenforce_budget(organization, user, embedder)
 
-    async with atrack_usage(organization=organization, user=user, client=client, model=embedder, endpoint=UsageEndpoint.VECTOR_EMBEDDING) as track:
+    async with atrack_usage(
+        organization=organization,
+        user=user,
+        client=client,
+        model=embedder,
+        endpoint=UsageEndpoint.VECTOR_EMBEDDING,
+    ) as track:
         with wrap_llm_errors(embedder):
             response = await aembedding(
                 embedder.llm_string,

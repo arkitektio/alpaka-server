@@ -127,9 +127,14 @@ and pass an alpaka token as the key:
 ```python
 from typesafe_sdk import TypeSafeClient, Noul
 
-client = TypeSafeClient(api_key="<alpaka token>", base_url="https://<host>/<prefix>/llm/systemone")
-client.system_one("I was charged twice.", {"billing": Noul(instructions="Is this about billing?")},
-                  model="laya:en")   # a model id, or "alpaka/default" for your default
+client = TypeSafeClient(
+    api_key="<alpaka token>", base_url="https://<host>/<prefix>/llm/systemone"
+)
+client.system_one(
+    "I was charged twice.",
+    {"billing": Noul(instructions="Is this about billing?")},
+    model="laya:en",
+)  # a model id, or "alpaka/default" for your default
 ```
 
 The client never sees the organization's upstream key. A spent budget answers `402`, which the

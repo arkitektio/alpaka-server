@@ -14,7 +14,6 @@ class KammerConfig(AppConfig):
         columns agree; ``migrate`` runs the database-tagged one at every boot, so a mismatch
         stops the service before it serves a wrong search.
         """
-        import embeddings.checks  # noqa: F401
-
         # The hub's rekuest: actions and model signals, connected in every process.
         import alpaka_server.service  # noqa: F401
+        import embeddings.checks  # noqa: F401

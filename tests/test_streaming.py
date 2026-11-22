@@ -10,10 +10,10 @@ import contextlib
 
 import pytest
 from asgiref.sync import sync_to_async
+from authentikate.models import Organization
 from channels.layers import get_channel_layer
 
 from alpaka_server.schema import schema
-from authentikate.models import Organization
 from kammer import models as kammer_models
 from kammer.channels import MessageSignal, message_channel, room_group
 from kammer.enums import RoomEventKind
@@ -37,7 +37,9 @@ ROOM = """
 @sync_to_async
 def make_room(org="static_org"):
     org = Organization.objects.get(identifier=f"static_issuer#{org}")
-    return kammer_models.Room.objects.for_write().create(title="stream", organization=org)
+    return kammer_models.Room.objects.for_write().create(
+        title="stream", organization=org
+    )
 
 
 @sync_to_async
@@ -47,11 +49,17 @@ def load_message(message_id):
 
 @sync_to_async
 def history_count(message_id):
-    return kammer_models.Message.all_objects.get(id=message_id).provenance_entries.count()
+    return kammer_models.Message.all_objects.get(
+        id=message_id
+    ).provenance_entries.count()
 
 
 async def start(aexecute, room, agent="writer", context=None, text=""):
-    result = await aexecute(START, {"input": {"room": str(room.id), "agentId": agent, "text": text}}, context=context)
+    result = await aexecute(
+        START,
+        {"input": {"room": str(room.id), "agentId": agent, "text": text}},
+        context=context,
+    )
     assert result.data, result.errors
     return result.data["startMessage"]
 
@@ -66,10 +74,18 @@ async def test_start_append_finish_flow(aexecute):
     started = await start(aexecute, room)
     assert started["text"] == "" and started["isStreaming"] is True
 
-    first = await aexecute(APPEND, {"input": {"message": started["id"], "delta": "Hel"}})
+    first = await aexecute(
+        APPEND, {"input": {"message": started["id"], "delta": "Hel"}}
+    )
     assert first.data["appendMessage"]["text"] == "Hel", first.errors
-    second = await aexecute(APPEND, {"input": {"message": started["id"], "delta": "lo"}})
-    assert second.data["appendMessage"] == {"id": started["id"], "text": "Hello", "isStreaming": True}, second.errors
+    second = await aexecute(
+        APPEND, {"input": {"message": started["id"], "delta": "lo"}}
+    )
+    assert second.data["appendMessage"] == {
+        "id": started["id"],
+        "text": "Hello",
+        "isStreaming": True,
+    }, second.errors
 
     finished = await aexecute(FINISH, {"input": {"message": started["id"]}})
     assert finished.data["finishMessage"]["text"] == "Hello", finished.errors
@@ -88,10 +104,21 @@ async def test_finish_text_override_and_structures(aexecute):
     started = await start(aexecute, room)
     await aexecute(APPEND, {"input": {"message": started["id"], "delta": "partial"}})
 
-    finished = await aexecute(FINISH, {"input": {"message": started["id"], "text": "final", "attachStructures": [{"identifier": "@mikro/image", "object": 7}]}})
+    finished = await aexecute(
+        FINISH,
+        {
+            "input": {
+                "message": started["id"],
+                "text": "final",
+                "attachStructures": [{"identifier": "@mikro/image", "object": 7}],
+            }
+        },
+    )
     assert finished.data, finished.errors
     assert finished.data["finishMessage"]["text"] == "final"
-    assert finished.data["finishMessage"]["attachedStructures"] == [{"identifier": "@mikro/image", "object": 7}]
+    assert finished.data["finishMessage"]["attachedStructures"] == [
+        {"identifier": "@mikro/image", "object": 7}
+    ]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -117,49 +144,79 @@ async def test_finished_message_is_immutable(aexecute):
     started = await start(aexecute, room, text="done")
     await aexecute(FINISH, {"input": {"message": started["id"]}})
 
-    appended = await aexecute(APPEND, {"input": {"message": started["id"], "delta": "!"}})
+    appended = await aexecute(
+        APPEND, {"input": {"message": started["id"], "delta": "!"}}
+    )
     assert appended.errors and "finished" in appended.errors[0].message
-    refinished = await aexecute(FINISH, {"input": {"message": started["id"], "text": "changed"}})
+    refinished = await aexecute(
+        FINISH, {"input": {"message": started["id"], "text": "changed"}}
+    )
     assert refinished.errors
     assert (await load_message(started["id"])).text == "done"
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_other_organization_and_other_user_are_refused(aexecute, other_org_context, same_org_other_user_context):
+async def test_other_organization_and_other_user_are_refused(
+    aexecute, other_org_context, same_org_other_user_context
+):
     room = await make_room()
     started = await start(aexecute, room, text="mine")
 
     for context in (other_org_context, same_org_other_user_context):
-        appended = await aexecute(APPEND, {"input": {"message": started["id"], "delta": "!"}}, context=context)
+        appended = await aexecute(
+            APPEND, {"input": {"message": started["id"], "delta": "!"}}, context=context
+        )
         assert appended.errors
-        finished = await aexecute(FINISH, {"input": {"message": started["id"]}}, context=context)
+        finished = await aexecute(
+            FINISH, {"input": {"message": started["id"]}}, context=context
+        )
         assert finished.errors
 
     row = await load_message(started["id"])
     assert row.text == "mine" and row.is_streaming is True
 
     # Another organization cannot start a message in this room either.
-    foreign = await aexecute(START, {"input": {"room": str(room.id), "agentId": "intruder"}}, context=other_org_context)
+    foreign = await aexecute(
+        START,
+        {"input": {"room": str(room.id), "agentId": "intruder"}},
+        context=other_org_context,
+    )
     assert foreign.errors
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_send_input_has_no_notify_and_validates_parent(aexecute, other_org_context):
+async def test_send_input_has_no_notify_and_validates_parent(
+    aexecute, other_org_context
+):
     sdl = schema.as_str()
     assert "notify" not in sdl.split("input SendMessageInput")[1].split("}")[0]
 
     room = await make_room()
     other_room = await make_room("other_org")
-    foreign_parent = await sync_to_async(kammer_models.Message.objects.for_write().create)(
+    foreign_parent = await sync_to_async(
+        kammer_models.Message.objects.for_write().create
+    )(
         room=other_room,
-        agent=await sync_to_async(kammer_models.Agent.objects.for_write().create)(room=other_room, user=other_org_context.request.user, client=other_org_context.request.client, name="x"),
+        agent=await sync_to_async(kammer_models.Agent.objects.for_write().create)(
+            room=other_room,
+            user=other_org_context.request.user,
+            client=other_org_context.request.client,
+            name="x",
+        ),
         text="theirs",
     )
     result = await aexecute(
         "mutation($input: SendMessageInput!) { send(input: $input) { id } }",
-        {"input": {"room": str(room.id), "agentId": "writer", "text": "reply", "parent": str(foreign_parent.id)}},
+        {
+            "input": {
+                "room": str(room.id),
+                "agentId": "writer",
+                "text": "reply",
+                "parent": str(foreign_parent.id),
+            }
+        },
     )
     assert result.errors
 
@@ -178,12 +235,18 @@ class Subscriber:
 
     def __init__(self, ws_context, room, agent, filter_own=True):
         self.ws_context = ws_context
-        self.variables = {"room": str(room.id), "agentId": agent, "filterOwn": filter_own}
+        self.variables = {
+            "room": str(room.id),
+            "agentId": agent,
+            "filterOwn": filter_own,
+        }
         self.events: asyncio.Queue = asyncio.Queue()
         self.task = asyncio.create_task(self._run())
 
     async def _run(self):
-        sub = await schema.subscribe(ROOM, variable_values=self.variables, context_value=self.ws_context)
+        sub = await schema.subscribe(
+            ROOM, variable_values=self.variables, context_value=self.ws_context
+        )
         if hasattr(sub, "errors"):
             self.events.put_nowait(sub)
             return
@@ -208,7 +271,9 @@ async def subscribe(ws_context, room, agent, filter_own=True):
     for _ in range(500):
         if subscriber.task.done():
             subscriber.task.result()  # surfaces a failed subscribe
-        if ws_context.consumer.channel_name in layer.groups.get(room_group(room.id), {}):
+        if ws_context.consumer.channel_name in layer.groups.get(
+            room_group(room.id), {}
+        ):
             break
         await asyncio.sleep(0.01)
     else:
@@ -238,7 +303,11 @@ async def test_subscription_sees_created_updated_finished(aexecute, ws_contexts)
     await aexecute(FINISH, {"input": {"message": started["id"]}})
     event = await listener.next()
     assert event["kind"] == "MESSAGE_FINISHED"
-    assert event["message"] == {"id": started["id"], "text": "Hello", "isStreaming": False}
+    assert event["message"] == {
+        "id": started["id"],
+        "text": "Hello",
+        "isStreaming": False,
+    }
 
     await listener.close()
 
@@ -297,7 +366,9 @@ async def test_two_rooms_on_one_connection_do_not_cross_feed(aexecute, ws_contex
 
     started = await start(aexecute, second_room, agent="writer")
     event = await second.next()
-    assert event["kind"] == "MESSAGE_CREATED" and event["message"]["id"] == started["id"]
+    assert (
+        event["kind"] == "MESSAGE_CREATED" and event["message"]["id"] == started["id"]
+    )
 
     with pytest.raises(asyncio.TimeoutError):
         await first.next(timeout=0.5)
@@ -308,7 +379,9 @@ async def test_two_rooms_on_one_connection_do_not_cross_feed(aexecute, ws_contex
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_signal_for_a_deleted_message_does_not_kill_the_subscription(aexecute, ws_contexts):
+async def test_a_signal_for_a_deleted_message_does_not_kill_the_subscription(
+    aexecute, ws_contexts
+):
     """Deleting a room cascades to its messages; a signal already in flight for one
     must be skipped, not raise out of the subscription's ``async for``."""
     room = await make_room()
@@ -320,7 +393,9 @@ async def test_a_signal_for_a_deleted_message_does_not_kill_the_subscription(aex
     ghost = await load_message(started["id"])
     await sync_to_async(ghost.delete)()
     await message_channel.abroadcast(
-        MessageSignal(kind=RoomEventKind.MESSAGE_UPDATED, room=room.id, message=ghost.id),
+        MessageSignal(
+            kind=RoomEventKind.MESSAGE_UPDATED, room=room.id, message=ghost.id
+        ),
         [room_group(room.id)],
     )
 
@@ -333,7 +408,9 @@ async def test_a_signal_for_a_deleted_message_does_not_kill_the_subscription(aex
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_closing_one_subscription_does_not_silence_a_sibling_on_the_same_room(aexecute, ws_contexts):
+async def test_closing_one_subscription_does_not_silence_a_sibling_on_the_same_room(
+    aexecute, ws_contexts
+):
     """``listen_to_channel(groups=...)`` discards with the per-*connection* channel
     name, so closing one subscription used to remove the whole connection from the
     room. ``listen_to_room`` refcounts the membership instead."""
@@ -348,5 +425,7 @@ async def test_closing_one_subscription_does_not_silence_a_sibling_on_the_same_r
 
     started = await start(aexecute, room, agent="writer")
     event = await first.next(timeout=1)
-    assert event["kind"] == "MESSAGE_CREATED" and event["message"]["id"] == started["id"]
+    assert (
+        event["kind"] == "MESSAGE_CREATED" and event["message"]["id"] == started["id"]
+    )
     await first.close()

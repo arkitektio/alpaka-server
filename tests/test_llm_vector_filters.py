@@ -4,8 +4,8 @@ filtered on a non-existent ``title`` column."""
 
 import pytest
 from asgiref.sync import sync_to_async
-
 from authentikate.models import Organization
+
 from llm import models as llm_models
 from vector import models as vector_models
 
@@ -14,8 +14,12 @@ from vector import models as vector_models
 def seed():
     org = Organization.objects.get(identifier="static_issuer#static_org")
 
-    openai = llm_models.Provider.objects.for_write().create(name="OpenAI", organization=org)
-    ollama = llm_models.Provider.objects.for_write().create(name="Ollama", organization=org)
+    openai = llm_models.Provider.objects.for_write().create(
+        name="OpenAI", organization=org
+    )
+    ollama = llm_models.Provider.objects.for_write().create(
+        name="Ollama", organization=org
+    )
 
     gpt = llm_models.LLMModel.objects.for_write().create(
         provider=openai,
@@ -32,8 +36,12 @@ def seed():
         output_modalities=["text"],
     )
 
-    collection = vector_models.ChromaCollection.objects.for_write().create(name="recipes", embedder=gpt, organization=org)
-    vector_models.ChromaCollection.objects.for_write().create(name="weather", embedder=gpt, organization=org)
+    collection = vector_models.ChromaCollection.objects.for_write().create(
+        name="recipes", embedder=gpt, organization=org
+    )
+    vector_models.ChromaCollection.objects.for_write().create(
+        name="weather", embedder=gpt, organization=org
+    )
 
     return {
         "org": org,
@@ -77,10 +85,14 @@ async def test_provider_filter_ids(aexecute):
         }
     """
 
-    result = await aexecute(query, {"filters": {"ids": [str(data["providers"]["ollama"].id)]}})
+    result = await aexecute(
+        query, {"filters": {"ids": [str(data["providers"]["ollama"].id)]}}
+    )
 
     assert result.data, result.errors
-    assert [p["id"] for p in result.data["providers"]] == [str(data["providers"]["ollama"].id)]
+    assert [p["id"] for p in result.data["providers"]] == [
+        str(data["providers"]["ollama"].id)
+    ]
 
 
 @pytest.mark.django_db(transaction=True)

@@ -47,15 +47,27 @@ def memory_owner(info: Info) -> tuple[User, Organization]:
     except ValueError:
         provenance = None
     if provenance is None:
-        raise MemoryNeedsTask("Memories are reached only from a task: send the task's provenance token")
+        raise MemoryNeedsTask(
+            "Memories are reached only from a task: send the task's provenance token"
+        )
 
     organization = request.organization
-    if provenance.org is None or organization is None or provenance.org != organization.identifier:
-        raise MemoryOrganizationMismatch("The task runs in another organization than this request")
+    if (
+        provenance.org is None
+        or organization is None
+        or provenance.org != organization.identifier
+    ):
+        raise MemoryOrganizationMismatch(
+            "The task runs in another organization than this request"
+        )
 
     user = _assigner(request.user, provenance.rcb, organization.issuer)
-    if Membership.objects.filter(user=user, organization=organization, blocked=True).exists():
-        raise MemoryAssignerBlocked("The task's assigner is blocked in this organization")
+    if Membership.objects.filter(
+        user=user, organization=organization, blocked=True
+    ).exists():
+        raise MemoryAssignerBlocked(
+            "The task's assigner is blocked in this organization"
+        )
     return user, organization
 
 

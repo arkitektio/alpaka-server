@@ -1,12 +1,13 @@
 import strawberry
 import strawberry_django
-from alpaka_server.descriptors import REQUIRES_DESCRIPTION, DescriptorConstraintInput
-from alpaka_server.descriptors import requires as descriptor_requires
 from django.db.models import Q, QuerySet
-from embeddings.search import hybrid_search
-from kammer import models
 from kante.types import Info
 from strawberry import auto
+
+from alpaka_server.descriptors import REQUIRES_DESCRIPTION, DescriptorConstraintInput
+from alpaka_server.descriptors import requires as descriptor_requires
+from embeddings.search import hybrid_search
+from kammer import models
 from vector import inputs as vector_inputs
 
 
@@ -52,10 +53,20 @@ class RoomOrder:
     created_at: auto
     title: auto
 
-    @strawberry_django.order_field(description="By the newest message, or the room's creation when it has none: DESC lists the rooms with recent activity first")
-    def last_message_at(self, queryset: QuerySet, info: Info, value: strawberry_django.Ordering, prefix: str) -> tuple[QuerySet, list]:
+    @strawberry_django.order_field(
+        description="By the newest message, or the room's creation when it has none: DESC lists the rooms with recent activity first"
+    )
+    def last_message_at(
+        self,
+        queryset: QuerySet,
+        info: Info,
+        value: strawberry_django.Ordering,
+        prefix: str,
+    ) -> tuple[QuerySet, list]:
         """Annotate the room's latest activity and order by it."""
-        return queryset.annotate(_last_message_at=models.room_last_activity(prefix)), [value.resolve("_last_message_at")]
+        return queryset.annotate(_last_message_at=models.room_last_activity(prefix)), [
+            value.resolve("_last_message_at")
+        ]
 
 
 @strawberry_django.filter_type(models.Room)
@@ -64,10 +75,16 @@ class RoomFilter:
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}id__in": value})
 
-    @strawberry_django.filter_field(description="Search by title: a case-insensitive substring, or semantic similarity of the query to the room's title and description. Substring matches rank first, then by similarity; an explicit `ordering` replaces that ranking.")
-    def search(self, info: Info, queryset: QuerySet, value: str, prefix: str) -> tuple[QuerySet, Q]:
+    @strawberry_django.filter_field(
+        description="Search by title: a case-insensitive substring, or semantic similarity of the query to the room's title and description. Substring matches rank first, then by similarity; an explicit `ordering` replaces that ranking."
+    )
+    def search(
+        self, info: Info, queryset: QuerySet, value: str, prefix: str
+    ) -> tuple[QuerySet, Q]:
         """Annotate the distance and OR the semantic predicate onto the substring one."""
-        return hybrid_search(queryset, prefix, value, Q(**{f"{prefix}title__icontains": value}))
+        return hybrid_search(
+            queryset, prefix, value, Q(**{f"{prefix}title__icontains": value})
+        )
 
     @strawberry_django.filter_field
     def talking_about(
@@ -76,7 +93,9 @@ class RoomFilter:
         queryset: QuerySet,
         prefix: str,
     ) -> tuple[QuerySet, Q]:
-        structure = models.Structure.objects.filter(object=value.object, identifier=value.identifier).first()
+        structure = models.Structure.objects.filter(
+            object=value.object, identifier=value.identifier
+        ).first()
         if not structure:
             return queryset.none(), Q()
         return queryset, Q(**{f"{prefix}contextual_structures": structure})

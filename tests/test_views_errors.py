@@ -54,14 +54,19 @@ def test_api_error_without_usable_status_falls_back_to_502():
     """A non-HTTP / missing status_code becomes a 502 rather than echoing a
     nonsensical HTTP status."""
     e = litellm.exceptions.APIError(
-        status_code=0, message="connection blew up", llm_provider="openrouter", model="x"
+        status_code=0,
+        message="connection blew up",
+        llm_provider="openrouter",
+        model="x",
     )
     r = litellm_error_response(e, model=make_model())
     assert r.status_code == 502
 
 
 def test_authentication_error_maps_to_401():
-    e = litellm.exceptions.AuthenticationError(message="bad key", llm_provider="openrouter", model="x")
+    e = litellm.exceptions.AuthenticationError(
+        message="bad key", llm_provider="openrouter", model="x"
+    )
     r = litellm_error_response(e, model=make_model())
     assert r.status_code == 401
     assert body(r)["type"] == "authentication_error"
@@ -69,14 +74,18 @@ def test_authentication_error_maps_to_401():
 
 
 def test_rate_limit_error_maps_to_429():
-    e = litellm.exceptions.RateLimitError(message="slow down", llm_provider="openrouter", model="x")
+    e = litellm.exceptions.RateLimitError(
+        message="slow down", llm_provider="openrouter", model="x"
+    )
     r = litellm_error_response(e, model=make_model())
     assert r.status_code == 429
     assert body(r)["type"] == "rate_limit_error"
 
 
 def test_invalid_request_error_maps_to_400():
-    e = litellm.exceptions.InvalidRequestError(message="bad params", model="x", llm_provider="openrouter")
+    e = litellm.exceptions.InvalidRequestError(
+        message="bad params", model="x", llm_provider="openrouter"
+    )
     r = litellm_error_response(e, model=make_model())
     assert r.status_code == 400
     assert body(r)["type"] == "invalid_request_error"

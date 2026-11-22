@@ -8,7 +8,6 @@ over the websocket in :mod:`kammer.consumers`. Both share :mod:`kammer.streaming
 """
 
 import logging
-from typing import List
 
 import strawberry
 from arkitekt_service.collaborations.guests import require_in_collaboration
@@ -29,7 +28,12 @@ POSTING_ROLES = [EDITOR]
 
 def _owned(info: Info, message_id: strawberry.ID) -> models.Message:
     request = info.context.request
-    return streaming.owned_streaming_message(organization=request.organization, user=request.user, client=request.client, message_id=message_id)
+    return streaming.owned_streaming_message(
+        organization=request.organization,
+        user=request.user,
+        client=request.client,
+        message_id=message_id,
+    )
 
 
 @strawberry.input(description="The room to create")
@@ -38,7 +42,7 @@ class CreateRoomInput:
 
     description: str | None = None
     title: str | None = None
-    talking_about: List[vector_inputs.StructureInput] | None = None
+    talking_about: list[vector_inputs.StructureInput] | None = None
 
 
 def create_room(info: Info, input: CreateRoomInput) -> types.Room:
@@ -56,7 +60,9 @@ def create_room(info: Info, input: CreateRoomInput) -> types.Room:
         )
 
         if input.talking_about:
-            room.contextual_structures.add(*streaming.attach_structures(input.talking_about))
+            room.contextual_structures.add(
+                *streaming.attach_structures(input.talking_about)
+            )
 
     return room
 
@@ -70,7 +76,9 @@ class DeleteRoomInput:
 
 def delete_room(info: Info, input: DeleteRoomInput) -> strawberry.ID:
     """Delete a room belonging to the caller's organization."""
-    room = models.Room.objects.for_organization(info.context.request.organization).get(id=input.id)
+    room = models.Room.objects.for_organization(info.context.request.organization).get(
+        id=input.id
+    )
     room.delete()
     return input.id
 
@@ -83,7 +91,7 @@ class SendMessageInput:
     agent_id: str
     text: str
     parent: strawberry.ID | None = None
-    attach_structures: List[vector_inputs.StructureInput] | None = None
+    attach_structures: list[vector_inputs.StructureInput] | None = None
 
 
 def send(info: Info, input: SendMessageInput) -> types.Message:
@@ -96,7 +104,13 @@ def send(info: Info, input: SendMessageInput) -> types.Message:
     """
     request = info.context.request
     with transaction.atomic():
-        room, agent = streaming.room_and_agent(organization=request.organization, user=request.user, client=request.client, room_id=input.room, agent_name=input.agent_id)
+        room, agent = streaming.room_and_agent(
+            organization=request.organization,
+            user=request.user,
+            client=request.client,
+            room_id=input.room,
+            agent_name=input.agent_id,
+        )
         # A guest's agent joined the room in this transaction: a refusal takes it back out.
         require_in_collaboration(room, any_role_of=POSTING_ROLES, info=info)
 
@@ -104,11 +118,15 @@ def send(info: Info, input: SendMessageInput) -> types.Message:
             agent=agent,
             room=room,
             text=input.text,
-            is_reply_to=streaming.parent_message(organization=request.organization, room=room, parent_id=input.parent),
+            is_reply_to=streaming.parent_message(
+                organization=request.organization, room=room, parent_id=input.parent
+            ),
         )
 
         if input.attach_structures:
-            message.attached_structures.add(*streaming.attach_structures(input.attach_structures))
+            message.attached_structures.add(
+                *streaming.attach_structures(input.attach_structures)
+            )
 
     return message
 
@@ -162,11 +180,13 @@ class FinishMessageInput:
 
     message: strawberry.ID
     text: str | None = None
-    attach_structures: List[vector_inputs.StructureInput] | None = None
+    attach_structures: list[vector_inputs.StructureInput] | None = None
 
 
 def finish_message(info: Info, input: FinishMessageInput) -> types.Message:
     """Mark a streaming message as complete, optionally replacing its text with the final version."""
-    message = streaming.finish_message(_owned(info, input.message), text=input.text, structures=input.attach_structures)
+    message = streaming.finish_message(
+        _owned(info, input.message), text=input.text, structures=input.attach_structures
+    )
     streaming.announce(RoomEventKind.MESSAGE_FINISHED, message)
     return message

@@ -47,7 +47,10 @@ def redact_config(config: Any) -> Any:
     still distinguishable from an empty one.
     """
     if isinstance(config, dict):
-        return {key: REDACTED if _is_secret_key(str(key)) else redact_config(value) for key, value in config.items()}
+        return {
+            key: REDACTED if _is_secret_key(str(key)) else redact_config(value)
+            for key, value in config.items()
+        }
     if isinstance(config, list):
         return [redact_config(item) for item in config]
     return config

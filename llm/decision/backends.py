@@ -13,7 +13,7 @@ import json
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 import aiohttp
 
@@ -45,7 +45,14 @@ class DecisionError(Exception):
     can relay a validation failure verbatim instead of flattening it.
     """
 
-    def __init__(self, message: str, *, status: Optional[int] = None, code: Optional[str] = None, body: Any = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        code: str | None = None,
+        body: Any = None,
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
@@ -58,7 +65,7 @@ class DecisionModelInfo:
 
     name: str
     description: str = ""
-    release_date: Optional[str] = None
+    release_date: str | None = None
 
 
 class DecisionBackend(Protocol):
@@ -95,7 +102,14 @@ def _retry_delay(attempt: int, headers: Any) -> float:
 class SystemOneBackend:
     """The systemone wire protocol over HTTP."""
 
-    def __init__(self, kind: ProviderKind, *, label: str, default_api_base: str, input_price_per_million: Decimal) -> None:
+    def __init__(
+        self,
+        kind: ProviderKind,
+        *,
+        label: str,
+        default_api_base: str,
+        input_price_per_million: Decimal,
+    ) -> None:
         self.kind = kind
         self.label = label
         self.default_api_base = default_api_base
@@ -117,27 +131,51 @@ class SystemOneBackend:
             headers["Authorization"] = f"Bearer {provider.api_key}"
         return headers
 
-    async def _request(self, provider: Provider, method: str, path: str, *, body: Optional[dict] = None, timeout: float = DECIDE_TIMEOUT_SECONDS) -> dict:
+    async def _request(
+        self,
+        provider: Provider,
+        method: str,
+        path: str,
+        *,
+        body: dict | None = None,
+        timeout: float = DECIDE_TIMEOUT_SECONDS,
+    ) -> dict:
         """One JSON request, retried on the transient statuses."""
         url = f"{self.base_url(provider)}{path}"
         client_timeout = aiohttp.ClientTimeout(total=timeout)
         for attempt in range(MAX_ATTEMPTS):
             try:
-                async with aiohttp.ClientSession(headers=self.headers(provider), timeout=client_timeout) as session:
+                async with aiohttp.ClientSession(
+                    headers=self.headers(provider), timeout=client_timeout
+                ) as session:
                     async with session.request(method, url, json=body) as res:
                         text = await res.text()
                         if res.status == 200:
                             return json.loads(text)
                         if res.status in RETRY_STATUSES and attempt + 1 < MAX_ATTEMPTS:
                             delay = _retry_delay(attempt, res.headers)
-                            logger.info("%s %s returned %s, retrying in %.1fs", self.label, path, res.status, delay)
+                            logger.info(
+                                "%s %s returned %s, retrying in %.1fs",
+                                self.label,
+                                path,
+                                res.status,
+                                delay,
+                            )
                             await asyncio.sleep(delay)
                             continue
                         raise self._error(res.status, text)
             except aiohttp.ClientError as e:
-                raise DecisionError(f"Could not reach {self.label} at {url}: {e}", status=502, code="UPSTREAM_UNREACHABLE") from e
-            except asyncio.TimeoutError as e:
-                raise DecisionError(f"{self.label} at {url} did not answer within {timeout:.0f}s", status=504, code="UPSTREAM_TIMEOUT") from e
+                raise DecisionError(
+                    f"Could not reach {self.label} at {url}: {e}",
+                    status=502,
+                    code="UPSTREAM_UNREACHABLE",
+                ) from e
+            except TimeoutError as e:
+                raise DecisionError(
+                    f"{self.label} at {url} did not answer within {timeout:.0f}s",
+                    status=504,
+                    code="UPSTREAM_TIMEOUT",
+                ) from e
         raise AssertionError("unreachable")  # pragma: no cover
 
     def _error(self, status: int, text: str) -> DecisionError:
@@ -153,15 +191,31 @@ class SystemOneBackend:
                 message = json.dumps(message)
         else:
             message, code = text or f"HTTP {status}", None
-        return DecisionError(f"{self.label} returned {status}: {message}", status=status, code=code, body=body)
+        return DecisionError(
+            f"{self.label} returned {status}: {message}",
+            status=status,
+            code=code,
+            body=body,
+        )
 
     async def decide(self, model: LLMModel, state: Any, questions: dict) -> dict:
-        return await self._request(model.provider, "POST", "/v1/systemone", body={"model": model.model_id, "state": state, "questions": questions})
+        return await self._request(
+            model.provider,
+            "POST",
+            "/v1/systemone",
+            body={"model": model.model_id, "state": state, "questions": questions},
+        )
 
     async def list_models(self, provider: Provider) -> list[DecisionModelInfo]:
-        data = await self._request(provider, "GET", "/v1/models", timeout=LIST_MODELS_TIMEOUT_SECONDS)
+        data = await self._request(
+            provider, "GET", "/v1/models", timeout=LIST_MODELS_TIMEOUT_SECONDS
+        )
         return [
-            DecisionModelInfo(name=entry["name"], description=entry.get("description") or "", release_date=entry.get("release_date"))
+            DecisionModelInfo(
+                name=entry["name"],
+                description=entry.get("description") or "",
+                release_date=entry.get("release_date"),
+            )
             for entry in data.get("models", [])
             if isinstance(entry, dict) and entry.get("name")
         ]
@@ -171,13 +225,18 @@ class SystemOneBackend:
         prompt = int(usage.get("input_tokens") or 0)
         completion = int(usage.get("output_tokens") or 0)
         cost = self.input_price_per_million * prompt / Decimal(1_000_000)
-        return UsageFacts(prompt_tokens=prompt, completion_tokens=completion, total_tokens=prompt + completion, cost=cost)
+        return UsageFacts(
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            total_tokens=prompt + completion,
+            cost=cost,
+        )
 
 
 class OllayaBackend(SystemOneBackend):
     """A self-hosted Ollaya daemon, which can also pull models by name."""
 
-    async def pull(self, provider: Provider, name: str) -> tuple[str, Optional[str]]:
+    async def pull(self, provider: Provider, name: str) -> tuple[str, str | None]:
         """Pull ``name`` into the daemon; returns ``(status, detail)`` like the Ollama pull.
 
         Ollaya's pull takes ``{"model": ...}`` (Ollama's takes ``name``) and
@@ -186,7 +245,9 @@ class OllayaBackend(SystemOneBackend):
         url = f"{self.base_url(provider)}/api/pull"
         timeout = aiohttp.ClientTimeout(total=PULL_TIMEOUT_SECONDS)
         try:
-            async with aiohttp.ClientSession(headers=self.headers(provider), timeout=timeout) as session:
+            async with aiohttp.ClientSession(
+                headers=self.headers(provider), timeout=timeout
+            ) as session:
                 async with session.post(url, json={"model": name}) as res:
                     if res.status != 200:
                         error = self._error(res.status, await res.text())
@@ -236,4 +297,8 @@ def backend_for(provider: Provider) -> DecisionBackend:
     try:
         return DECISION_BACKENDS[kind]
     except KeyError:
-        raise DecisionError(f"Provider '{provider.name}' is a {kind} provider, which serves no decision models.", status=400, code="NOT_A_DECISION_PROVIDER") from None
+        raise DecisionError(
+            f"Provider '{provider.name}' is a {kind} provider, which serves no decision models.",
+            status=400,
+            code="NOT_A_DECISION_PROVIDER",
+        ) from None

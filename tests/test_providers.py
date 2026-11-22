@@ -33,13 +33,29 @@ class _AnthropicModels(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         if self.headers.get("x-api-key") != ANTHROPIC_KEY:
-            self._json(401, {"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}})
+            self._json(
+                401,
+                {
+                    "type": "error",
+                    "error": {
+                        "type": "authentication_error",
+                        "message": "invalid x-api-key",
+                    },
+                },
+            )
             return
         after = parse_qs(url.query).get("after_id", [None])[0]
         start = ANTHROPIC_MODELS.index(after) + 1 if after else 0
         page = ANTHROPIC_MODELS[start : start + 1]
         has_more = start + 1 < len(ANTHROPIC_MODELS)
-        self._json(200, {"data": [{"id": model_id, "type": "model"} for model_id in page], "has_more": has_more, "last_id": page[-1] if page else None})
+        self._json(
+            200,
+            {
+                "data": [{"id": model_id, "type": "model"} for model_id in page],
+                "has_more": has_more,
+                "last_id": page[-1] if page else None,
+            },
+        )
 
     def _json(self, status: int, body: dict) -> None:
         payload = json.dumps(body).encode()
@@ -67,7 +83,10 @@ def test_hosted_kinds_need_no_endpoint() -> None:
     """A hosted API is stored without an endpoint, so litellm uses its own."""
     assert _resolve_api_base("anthropic", None) is None
     assert _resolve_api_base("openai", None) is None
-    assert _resolve_api_base("anthropic", "https://proxy.example") == "https://proxy.example"
+    assert (
+        _resolve_api_base("anthropic", "https://proxy.example")
+        == "https://proxy.example"
+    )
     assert _resolve_api_base("openrouter", None) == "https://openrouter.ai/api/v1"
 
 
@@ -79,7 +98,9 @@ def test_routing_prefix_is_stripped_once() -> None:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["AZURE", "CUSTOM"])
-async def test_kinds_without_a_shared_endpoint_still_need_one(aexecute, kind: str) -> None:
+async def test_kinds_without_a_shared_endpoint_still_need_one(
+    aexecute, kind: str
+) -> None:
     result = await aexecute(CREATE_PROVIDER, {"input": {"kind": kind, "apiKey": "key"}})
     assert result.errors is not None
     assert "Supply apiBase explicitly" in result.errors[0].message
@@ -87,22 +108,40 @@ async def test_kinds_without_a_shared_endpoint_still_need_one(aexecute, kind: st
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_anthropic_lists_every_page_and_routes_once(aexecute, anthropic_url: str) -> None:
-    result = await aexecute(CREATE_PROVIDER, {"input": {"kind": "ANTHROPIC", "apiKey": ANTHROPIC_KEY, "apiBase": anthropic_url}})
+async def test_anthropic_lists_every_page_and_routes_once(
+    aexecute, anthropic_url: str
+) -> None:
+    result = await aexecute(
+        CREATE_PROVIDER,
+        {
+            "input": {
+                "kind": "ANTHROPIC",
+                "apiKey": ANTHROPIC_KEY,
+                "apiBase": anthropic_url,
+            }
+        },
+    )
     assert result.errors is None, result.errors
 
     provider = result.data["createProvider"]
     assert sorted(model["modelId"] for model in provider["models"]) == ANTHROPIC_MODELS
 
     # A test reads the row back outside any request, so across organizations.
-    model = await sync_to_async(llm_models.LLMModel.all_objects.select_related("provider").get)(id=provider["models"][0]["id"])
+    model = await sync_to_async(
+        llm_models.LLMModel.all_objects.select_related("provider").get
+    )(id=provider["models"][0]["id"])
     assert model.llm_string == f"anthropic/{model.model_id}"
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_rejected_anthropic_key_fails_creation(aexecute, anthropic_url: str) -> None:
-    result = await aexecute(CREATE_PROVIDER, {"input": {"kind": "ANTHROPIC", "apiKey": "wrong", "apiBase": anthropic_url}})
+async def test_a_rejected_anthropic_key_fails_creation(
+    aexecute, anthropic_url: str
+) -> None:
+    result = await aexecute(
+        CREATE_PROVIDER,
+        {"input": {"kind": "ANTHROPIC", "apiKey": "wrong", "apiBase": anthropic_url}},
+    )
     assert result.errors is not None
     assert "401" in result.errors[0].message
 
@@ -111,16 +150,29 @@ async def test_a_rejected_anthropic_key_fails_creation(aexecute, anthropic_url: 
 @pytest.mark.asyncio
 async def test_providers_count_their_models(aexecute, anthropic_url: str) -> None:
     """``modelCount`` counts a provider's models, listed or on its own, and a page of them reads through `models`."""
-    created = await aexecute(CREATE_PROVIDER, {"input": {"kind": "ANTHROPIC", "apiKey": ANTHROPIC_KEY, "apiBase": anthropic_url}})
+    created = await aexecute(
+        CREATE_PROVIDER,
+        {
+            "input": {
+                "kind": "ANTHROPIC",
+                "apiKey": ANTHROPIC_KEY,
+                "apiBase": anthropic_url,
+            }
+        },
+    )
     assert created.errors is None, created.errors
     provider = created.data["createProvider"]
 
-    listed = await aexecute("query { providers { id modelCount models(pagination: { limit: 1 }) { id } } }")
+    listed = await aexecute(
+        "query { providers { id modelCount models(pagination: { limit: 1 }) { id } } }"
+    )
     assert listed.errors is None, listed.errors
     row = next(p for p in listed.data["providers"] if p["id"] == provider["id"])
     assert row["modelCount"] == len(ANTHROPIC_MODELS)
     assert len(row["models"]) == 1
 
-    single = await aexecute("query ($id: ID!) { provider(id: $id) { modelCount } }", {"id": provider["id"]})
+    single = await aexecute(
+        "query ($id: ID!) { provider(id: $id) { modelCount } }", {"id": provider["id"]}
+    )
     assert single.errors is None, single.errors
     assert single.data["provider"]["modelCount"] == len(ANTHROPIC_MODELS)

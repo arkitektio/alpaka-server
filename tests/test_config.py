@@ -37,7 +37,11 @@ def test_providers_shorthand_maps_to_auto_configured_partners():
 
 def test_providers_full_partner_entries_pass_through():
     """An entry that already looks like a ProviderPartnerModel is taken as-is."""
-    s = Settings(providers=[{"identifier": "corp", "name": "Corp", "kind": "openai", "api_key": "sk-x"}])
+    s = Settings(
+        providers=[
+            {"identifier": "corp", "name": "Corp", "kind": "openai", "api_key": "sk-x"}
+        ]
+    )
     assert s.provider_partners[0].identifier == "corp"
     assert s.provider_partners[0].auto_configure is False
 
@@ -45,7 +49,9 @@ def test_providers_full_partner_entries_pass_through():
 def test_explicit_provider_partners_wins_over_shorthand():
     s = Settings(
         providers=[{"openrouter": "sk-ignored"}],
-        provider_partners=[{"identifier": "explicit", "name": "Explicit", "kind": "openai"}],
+        provider_partners=[
+            {"identifier": "explicit", "name": "Explicit", "kind": "openai"}
+        ],
     )
     assert [p.identifier for p in s.provider_partners] == ["explicit"]
 
@@ -101,6 +107,13 @@ def test_the_services_own_config_is_read_as_written():
 
 def test_an_unknown_key_in_a_block_of_this_service_is_reported():
     """A key no setting claims is said, where the block is this service's and closed."""
-    found = unread(Settings, {"django": {"secret_key": "s", "debgu": True}, "postgres": {"sslmode": "require"}, "somebody_elses": {"x": 1}})
+    found = unread(
+        Settings,
+        {
+            "django": {"secret_key": "s", "debgu": True},
+            "postgres": {"sslmode": "require"},
+            "somebody_elses": {"x": 1},
+        },
+    )
     assert found.unknown == ["django.debgu"]
     assert found.renamed == []

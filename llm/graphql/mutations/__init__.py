@@ -5,7 +5,12 @@ from .chat import chat
 from .decide import decide
 from .image import generate_image
 from .model import use_model_for
-from .provider import create_provider, delete_provider, refresh_provider, update_provider
+from .provider import (
+    create_provider,
+    delete_provider,
+    refresh_provider,
+    update_provider,
+)
 from .pull import pull
 
 __all__ = [

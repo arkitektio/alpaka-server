@@ -3,19 +3,24 @@ own (the ``@auth`` directive publishes it, a generated client gathers it), and `
 for all of them."""
 
 import pytest
+from arkitekt_service.graphql import scope_gaps
 from kante.context import HttpContext, UniversalRequest
 from strawberry.http.temporal_response import TemporalResponse
 from strawberry.types import ExecutionResult
 
 from alpaka_server.schema import schema
-from arkitekt_service.graphql import scope_gaps
 
 CREATE_ROOM = 'mutation { createRoom(input: {title: "scoped"}) { id } }'
 ROOMS = "query { rooms { id } }"
 
 
 def _as(token: str) -> HttpContext:
-    return HttpContext(request=UniversalRequest(_extensions={}), response=TemporalResponse(), headers={"Authorization": f"Bearer {token}"}, type="http")
+    return HttpContext(
+        request=UniversalRequest(_extensions={}),
+        response=TemporalResponse(),
+        headers={"Authorization": f"Bearer {token}"},
+        type="http",
+    )
 
 
 def _reason(result: ExecutionResult) -> str | None:

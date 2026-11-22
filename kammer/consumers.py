@@ -34,7 +34,7 @@ still owns its lifecycle and can finish it after reconnecting.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import parse_qs
 
 from asgiref.sync import sync_to_async
@@ -66,7 +66,7 @@ class _Stream:
     started_here: bool
     buffer: list[str] = field(default_factory=list)
     buffered_chars: int = 0
-    flush_task: Optional[asyncio.Task] = None
+    flush_task: asyncio.Task | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -78,7 +78,9 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
         self.streams: dict[int, _Stream] = {}
         await self.accept()
 
-        token = parse_qs(self.scope.get("query_string", b"").decode()).get("token", [None])[0]
+        token = parse_qs(self.scope.get("query_string", b"").decode()).get(
+            "token", [None]
+        )[0]
         if token:
             await self._authenticate(token)
 
@@ -101,7 +103,9 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
                 if stream.started_here and message_id in self.streams:
                     await self._finish(stream, text=None)
             except Exception:
-                logger.exception("Could not close streamed message %s on disconnect", message_id)
+                logger.exception(
+                    "Could not close streamed message %s on disconnect", message_id
+                )
         self.streams.clear()
 
     # --- frames -----------------------------------------------------------
@@ -117,7 +121,9 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
             await self._authenticate(str(content.get("token", "")))
             return
         if self.user is None:
-            await self._error("Not authenticated: send {\"type\": \"auth\", \"token\": ...} first")
+            await self._error(
+                'Not authenticated: send {"type": "auth", "token": ...} first'
+            )
             await self.close(code=CLOSE_UNAUTHENTICATED)
             return
         try:
@@ -134,7 +140,10 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
         except KeyError as e:
             # A frame missing ``room``/``message``. Answering keeps the protocol's
             # promise that a bad frame is an error event, not a dropped connection.
-            await self._error(f"Missing field {e.args[0]!r} in {kind!r} frame", message=content.get("message"))
+            await self._error(
+                f"Missing field {e.args[0]!r} in {kind!r} frame",
+                message=content.get("message"),
+            )
         except (PermissionError, ValueError, TypeError) as e:
             # TypeError: a field of the wrong shape, e.g. ``"message": {}``.
             await self._error(str(e), message=content.get("message"))
@@ -143,12 +152,16 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
             # buffered text is kept for the next flush; tell the writer rather than
             # dropping the connection under it.
             logger.exception("Could not handle %r frame", kind)
-            await self._error("Could not handle the frame", message=content.get("message"))
+            await self._error(
+                "Could not handle the frame", message=content.get("message")
+            )
 
     async def _authenticate(self, token: str) -> None:
         try:
             # Streaming is for the organization's agents: a guest posts with `send`, into a room of theirs.
-            decoded = require_full_member(await authenticate_token(token, get_settings()))
+            decoded = require_full_member(
+                await authenticate_token(token, get_settings())
+            )
             context = await aexpand_token_context(decoded)
         except Exception as e:
             # Malformed, expired, unknown-issuer and blocked-membership failures
@@ -157,8 +170,18 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
             await self._error(f"Authentication failed: {type(e).__name__}")
             await self.close(code=CLOSE_UNAUTHENTICATED)
             return
-        self.user, self.client, self.organization = context.user, context.client, context.organization
-        await self.send_json({"type": "authenticated", "user": self.user.id, "organization": self.organization.id})
+        self.user, self.client, self.organization = (
+            context.user,
+            context.client,
+            context.organization,
+        )
+        await self.send_json(
+            {
+                "type": "authenticated",
+                "user": self.user.id,
+                "organization": self.organization.id,
+            }
+        )
 
     async def _start(self, content: dict) -> None:
         message = await sync_to_async(streaming.open_message)(
@@ -177,8 +200,15 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
         """The connection's handle on a message, adopting one started elsewhere if it is ours."""
         stream = self.streams.get(message_id)
         if stream is None:
-            message = await sync_to_async(streaming.owned_streaming_message)(organization=self.organization, user=self.user, client=self.client, message_id=message_id)
-            stream = self.streams[message_id] = _Stream(message=message, started_here=False)
+            message = await sync_to_async(streaming.owned_streaming_message)(
+                organization=self.organization,
+                user=self.user,
+                client=self.client,
+                message_id=message_id,
+            )
+            stream = self.streams[message_id] = _Stream(
+                message=message, started_here=False
+            )
         return stream
 
     async def _append(self, content: dict) -> None:
@@ -229,7 +259,10 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
         stream = self.streams.get(message_id)
         if stream is None:
             return
-        if stream.flush_task is not None and stream.flush_task is not asyncio.current_task():
+        if (
+            stream.flush_task is not None
+            and stream.flush_task is not asyncio.current_task()
+        ):
             stream.flush_task.cancel()
             stream.flush_task = None
         async with stream.lock:
@@ -244,7 +277,9 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
                 rows = await sync_to_async(streaming.append_delta)(message_id, delta)
             except Exception:
                 logger.exception("Could not append to streamed message %s", message_id)
-                await self._error("Could not write this delta; it will be retried", message=message_id)
+                await self._error(
+                    "Could not write this delta; it will be retried", message=message_id
+                )
                 return
             # By index, not clear(): ``_append`` may have extended the buffer while
             # this coroutine was awaiting the write.
@@ -253,15 +288,26 @@ class MessageStreamConsumer(AsyncJsonWebsocketConsumer):
             if rows == 0:
                 # Finished elsewhere meanwhile; the delta is dropped.
                 self.streams.pop(message_id, None)
-                await self._error("This message is finished and cannot be modified", message=message_id)
+                await self._error(
+                    "This message is finished and cannot be modified",
+                    message=message_id,
+                )
                 return
-            await message_channel.abroadcast(*streaming.signal_for(RoomEventKind.MESSAGE_UPDATED, stream.message))
+            await message_channel.abroadcast(
+                *streaming.signal_for(RoomEventKind.MESSAGE_UPDATED, stream.message)
+            )
 
-    async def _finish(self, stream: _Stream, *, text: Optional[str]) -> None:
-        message = await sync_to_async(streaming.finish_message)(stream.message, text=text)
+    async def _finish(self, stream: _Stream, *, text: str | None) -> None:
+        message = await sync_to_async(streaming.finish_message)(
+            stream.message, text=text
+        )
         self.streams.pop(message.id, None)
-        await message_channel.abroadcast(*streaming.signal_for(RoomEventKind.MESSAGE_FINISHED, message))
-        await self.send_json({"type": "finished", "message": message.id, "text": message.text})
+        await message_channel.abroadcast(
+            *streaming.signal_for(RoomEventKind.MESSAGE_FINISHED, message)
+        )
+        await self.send_json(
+            {"type": "finished", "message": message.id, "text": message.text}
+        )
 
     async def _error(self, detail: str, *, message: Any = None) -> None:
         payload: dict[str, Any] = {"type": "error", "detail": detail}

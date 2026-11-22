@@ -17,14 +17,15 @@ Design rules:
   rewraps every exception into a generic "LLM request failed" message.
 """
 
+import asyncio
 import contextlib
 import datetime as dt
-import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any, AsyncIterator, Iterator, Optional, Sequence
+from typing import Any
 
 import litellm
 from asgiref.sync import sync_to_async
@@ -46,7 +47,9 @@ class BudgetExceeded(Exception):
         self.kind = kind
         self.used = used
         self.limit = limit
-        super().__init__(f"Budget {budget.pk} exceeded: {used} of {limit} {kind} used this {budget.period}")
+        super().__init__(
+            f"Budget {budget.pk} exceeded: {used} of {limit} {kind} used this {budget.period}"
+        )
 
 
 @dataclass
@@ -56,7 +59,7 @@ class UsageFacts:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
-    cost: Optional[Decimal] = None
+    cost: Decimal | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +74,7 @@ def _int(value: Any) -> int:
         return 0
 
 
-def _decimal(value: Any) -> Optional[Decimal]:
+def _decimal(value: Any) -> Decimal | None:
     if value is None:
         return None
     try:
@@ -86,19 +89,32 @@ def _get(container: Any, key: str) -> Any:
     return getattr(container, key, None)
 
 
-def cost_from_tokens(model_string: Optional[str], prompt_tokens: int, completion_tokens: int, *, call_type: str = "completion") -> Optional[Decimal]:
+def cost_from_tokens(
+    model_string: str | None,
+    prompt_tokens: int,
+    completion_tokens: int,
+    *,
+    call_type: str = "completion",
+) -> Decimal | None:
     """Price a token count with litellm's model map, or ``None`` if the model is unknown."""
     if not model_string or (prompt_tokens == 0 and completion_tokens == 0):
         return None
     try:
-        prompt_cost, completion_cost = litellm.cost_per_token(model=model_string, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, call_type=call_type)
+        prompt_cost, completion_cost = litellm.cost_per_token(
+            model=model_string,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            call_type=call_type,
+        )
     except Exception:
         logger.debug("No price for %s", model_string, exc_info=True)
         return None
     return _decimal(prompt_cost + completion_cost)
 
 
-def cost_of(response: Any, *, model_string: Optional[str] = None, call_type: str = "completion") -> Optional[Decimal]:
+def cost_of(
+    response: Any, *, model_string: str | None = None, call_type: str = "completion"
+) -> Decimal | None:
     """The cost litellm attached to ``response``, or its estimate, or ``None``."""
     hidden = getattr(response, "_hidden_params", None)
     if isinstance(hidden, dict) and hidden.get("response_cost") is not None:
@@ -106,30 +122,51 @@ def cost_of(response: Any, *, model_string: Optional[str] = None, call_type: str
     if isinstance(response, dict):
         return None
     try:
-        return _decimal(litellm.completion_cost(completion_response=response, model=model_string, call_type=call_type))
+        return _decimal(
+            litellm.completion_cost(
+                completion_response=response, model=model_string, call_type=call_type
+            )
+        )
     except Exception:
         logger.debug("Could not price response for %s", model_string, exc_info=True)
         return None
 
 
-def usage_from_response(response: Any, *, model_string: Optional[str] = None, call_type: str = "completion") -> UsageFacts:
+def usage_from_response(
+    response: Any, *, model_string: str | None = None, call_type: str = "completion"
+) -> UsageFacts:
     """Read token counts and cost from a litellm response (or a raw JSON dict)."""
     facts = UsageFacts()
     usage = _get(response, "usage") if response is not None else None
     if usage is not None:
         prompt = _int(_get(usage, "prompt_tokens")) or _int(_get(usage, "input_tokens"))
-        completion = _int(_get(usage, "completion_tokens")) or _int(_get(usage, "output_tokens"))
+        completion = _int(_get(usage, "completion_tokens")) or _int(
+            _get(usage, "output_tokens")
+        )
         # Embedding responses report total_tokens=0 alongside a real prompt count.
         total = _int(_get(usage, "total_tokens")) or (prompt + completion)
-        facts = UsageFacts(prompt_tokens=prompt, completion_tokens=completion, total_tokens=total)
+        facts = UsageFacts(
+            prompt_tokens=prompt, completion_tokens=completion, total_tokens=total
+        )
 
     facts.cost = cost_of(response, model_string=model_string, call_type=call_type)
     if facts.cost is None:
-        facts.cost = cost_from_tokens(model_string, facts.prompt_tokens, facts.completion_tokens, call_type=call_type)
+        facts.cost = cost_from_tokens(
+            model_string,
+            facts.prompt_tokens,
+            facts.completion_tokens,
+            call_type=call_type,
+        )
     return facts
 
 
-def usage_from_stream(chunks: Sequence[Any], *, messages: Optional[list] = None, model_string: Optional[str] = None, text_completion: bool = False) -> UsageFacts:
+def usage_from_stream(
+    chunks: Sequence[Any],
+    *,
+    messages: list | None = None,
+    model_string: str | None = None,
+    text_completion: bool = False,
+) -> UsageFacts:
     """Token counts and cost of a streamed response.
 
     Prefers the usage the provider put on its final chunk (``stream_options:
@@ -147,7 +184,9 @@ def usage_from_stream(chunks: Sequence[Any], *, messages: Optional[list] = None,
                 completion_tokens=_int(usage.completion_tokens),
                 total_tokens=_int(usage.total_tokens),
             )
-            facts.cost = cost_from_tokens(model_string, facts.prompt_tokens, facts.completion_tokens)
+            facts.cost = cost_from_tokens(
+                model_string, facts.prompt_tokens, facts.completion_tokens
+            )
             return facts
 
     try:
@@ -175,21 +214,27 @@ def _instance_or_none(value: Any, cls: type) -> Any:
 def record_usage(
     *,
     organization: Organization,
-    user: Optional[User] = None,
-    client: Optional[Client] = None,
-    model: Optional[LLMModel] = None,
+    user: User | None = None,
+    client: Client | None = None,
+    model: LLMModel | None = None,
     endpoint: UsageEndpoint,
-    facts: Optional[UsageFacts] = None,
-    started_at: Optional[float] = None,
-    error: Optional[BaseException] = None,
-) -> Optional[UsageRecord]:
+    facts: UsageFacts | None = None,
+    started_at: float | None = None,
+    error: BaseException | None = None,
+) -> UsageRecord | None:
     """Persist one call. Never raises: accounting cannot fail an LLM response."""
     try:
         if not isinstance(organization, Organization):
-            logger.warning("Usage not recorded: no organization (endpoint=%s)", endpoint)
+            logger.warning(
+                "Usage not recorded: no organization (endpoint=%s)", endpoint
+            )
             return None
         facts = facts or UsageFacts()
-        latency_ms = int((time.monotonic() - started_at) * 1000) if started_at is not None else None
+        latency_ms = (
+            int((time.monotonic() - started_at) * 1000)
+            if started_at is not None
+            else None
+        )
         provider = getattr(model, "provider", None)
         kind = getattr(provider, "kind", "") or ""
         error_type = ""
@@ -233,11 +278,11 @@ arecord_usage = sync_to_async(record_usage)
 class UsageTracker:
     """Collects the response of a tracked call so the context manager can record it."""
 
-    def __init__(self, model_string: Optional[str]) -> None:
+    def __init__(self, model_string: str | None) -> None:
         self.model_string = model_string
         self.response: Any = None
         self.call_type = "completion"
-        self.facts: Optional[UsageFacts] = None
+        self.facts: UsageFacts | None = None
 
     def set(self, response: Any, *, call_type: str = "completion") -> None:
         """Remember the litellm response (or raw JSON) to read usage from."""
@@ -253,34 +298,84 @@ class UsageTracker:
         if self.facts is not None:
             return self.facts
         if self.response is not None:
-            return usage_from_response(self.response, model_string=self.model_string, call_type=self.call_type)
+            return usage_from_response(
+                self.response, model_string=self.model_string, call_type=self.call_type
+            )
         return UsageFacts()
 
 
 @contextlib.contextmanager
-def track_usage(*, organization: Organization, user: Optional[User], client: Optional[Client], model: Optional[LLMModel], endpoint: UsageEndpoint) -> Iterator[UsageTracker]:
+def track_usage(
+    *,
+    organization: Organization,
+    user: User | None,
+    client: Client | None,
+    model: LLMModel | None,
+    endpoint: UsageEndpoint,
+) -> Iterator[UsageTracker]:
     """Record the call made inside the block, whether it succeeds or fails (sync)."""
     tracker = UsageTracker(getattr(model, "llm_string", None))
     started = time.monotonic()
     try:
         yield tracker
     except Exception as e:
-        record_usage(organization=organization, user=user, client=client, model=model, endpoint=endpoint, facts=tracker.resolve(), started_at=started, error=e)
+        record_usage(
+            organization=organization,
+            user=user,
+            client=client,
+            model=model,
+            endpoint=endpoint,
+            facts=tracker.resolve(),
+            started_at=started,
+            error=e,
+        )
         raise
-    record_usage(organization=organization, user=user, client=client, model=model, endpoint=endpoint, facts=tracker.resolve(), started_at=started)
+    record_usage(
+        organization=organization,
+        user=user,
+        client=client,
+        model=model,
+        endpoint=endpoint,
+        facts=tracker.resolve(),
+        started_at=started,
+    )
 
 
 @contextlib.asynccontextmanager
-async def atrack_usage(*, organization: Organization, user: Optional[User], client: Optional[Client], model: Optional[LLMModel], endpoint: UsageEndpoint) -> AsyncIterator[UsageTracker]:
+async def atrack_usage(
+    *,
+    organization: Organization,
+    user: User | None,
+    client: Client | None,
+    model: LLMModel | None,
+    endpoint: UsageEndpoint,
+) -> AsyncIterator[UsageTracker]:
     """Record the call made inside the block, whether it succeeds or fails (async)."""
     tracker = UsageTracker(getattr(model, "llm_string", None))
     started = time.monotonic()
     try:
         yield tracker
     except Exception as e:
-        await arecord_usage(organization=organization, user=user, client=client, model=model, endpoint=endpoint, facts=tracker.resolve(), started_at=started, error=e)
+        await arecord_usage(
+            organization=organization,
+            user=user,
+            client=client,
+            model=model,
+            endpoint=endpoint,
+            facts=tracker.resolve(),
+            started_at=started,
+            error=e,
+        )
         raise
-    await arecord_usage(organization=organization, user=user, client=client, model=model, endpoint=endpoint, facts=tracker.resolve(), started_at=started)
+    await arecord_usage(
+        organization=organization,
+        user=user,
+        client=client,
+        model=model,
+        endpoint=endpoint,
+        facts=tracker.resolve(),
+        started_at=started,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -288,11 +383,13 @@ async def atrack_usage(*, organization: Organization, user: Optional[User], clie
 # ---------------------------------------------------------------------------
 
 
-def period_start(period: "BudgetPeriod | str", now: Optional[dt.datetime] = None) -> dt.datetime:
+def period_start(
+    period: "BudgetPeriod | str", now: dt.datetime | None = None
+) -> dt.datetime:
     """The UTC start of the current period: midnight, Monday, or the 1st."""
     now = now or timezone.now()
     value = getattr(period, "value", period)
-    start = now.astimezone(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = now.astimezone(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     if value == BudgetPeriod.WEEK.value:
         start -= dt.timedelta(days=start.weekday())
     elif value == BudgetPeriod.MONTH.value:
@@ -300,7 +397,9 @@ def period_start(period: "BudgetPeriod | str", now: Optional[dt.datetime] = None
     return start
 
 
-def period_end(period: "BudgetPeriod | str", now: Optional[dt.datetime] = None) -> dt.datetime:
+def period_end(
+    period: "BudgetPeriod | str", now: dt.datetime | None = None
+) -> dt.datetime:
     """The exclusive UTC end of the current period."""
     start = period_start(period, now)
     value = getattr(period, "value", period)
@@ -324,23 +423,29 @@ class BudgetConsumption:
     used_cost: Decimal
 
     @property
-    def remaining_tokens(self) -> Optional[int]:
+    def remaining_tokens(self) -> int | None:
         if self.budget.limit_tokens is None:
             return None
         return max(self.budget.limit_tokens - self.used_tokens, 0)
 
     @property
-    def remaining_cost(self) -> Optional[Decimal]:
+    def remaining_cost(self) -> Decimal | None:
         if self.budget.limit_cost is None:
             return None
         return max(self.budget.limit_cost - self.used_cost, Decimal(0))
 
     @property
-    def breached(self) -> Optional[tuple[str, Any, Any]]:
+    def breached(self) -> tuple[str, Any, Any] | None:
         """``(kind, used, limit)`` for the first exceeded limit, or ``None``."""
-        if self.budget.limit_tokens is not None and self.used_tokens >= self.budget.limit_tokens:
+        if (
+            self.budget.limit_tokens is not None
+            and self.used_tokens >= self.budget.limit_tokens
+        ):
             return ("tokens", self.used_tokens, self.budget.limit_tokens)
-        if self.budget.limit_cost is not None and self.used_cost >= self.budget.limit_cost:
+        if (
+            self.budget.limit_cost is not None
+            and self.used_cost >= self.budget.limit_cost
+        ):
             return ("USD", self.used_cost, self.budget.limit_cost)
         return None
 
@@ -349,14 +454,23 @@ class BudgetConsumption:
         return self.breached is not None
 
 
-def applicable_budgets(organization: Organization, user: Optional[User], model: Optional[LLMModel]):
+def applicable_budgets(
+    organization: Organization, user: User | None, model: LLMModel | None
+):
     """The budgets that govern a call by ``user`` to ``model`` in ``organization``."""
     user_id = getattr(user, "pk", None) if isinstance(user, User) else None
     model_id = getattr(model, "pk", None) if isinstance(model, LLMModel) else None
-    return Budget.objects.for_organization(organization).filter(Q(user__isnull=True) | Q(user_id=user_id)).filter(Q(model__isnull=True) | Q(model_id=model_id)).order_by("id")
+    return (
+        Budget.objects.for_organization(organization)
+        .filter(Q(user__isnull=True) | Q(user_id=user_id))
+        .filter(Q(model__isnull=True) | Q(model_id=model_id))
+        .order_by("id")
+    )
 
 
-def consumption_for(budgets: Sequence[Budget], now: Optional[dt.datetime] = None) -> list[BudgetConsumption]:
+def consumption_for(
+    budgets: Sequence[Budget], now: dt.datetime | None = None
+) -> list[BudgetConsumption]:
     """Current-period consumption for each budget, in one aggregate query."""
     budgets = list(budgets)
     if not budgets:
@@ -375,7 +489,11 @@ def consumption_for(budgets: Sequence[Budget], now: Optional[dt.datetime] = None
         aggregates[f"cost_{budget.pk}"] = Sum("cost", filter=scope)
 
     organization_id = budgets[0].organization_id
-    row = UsageRecord.objects.for_organization(organization_id).filter(created_at__gte=min(starts.values())).aggregate(**aggregates)
+    row = (
+        UsageRecord.objects.for_organization(organization_id)
+        .filter(created_at__gte=min(starts.values()))
+        .aggregate(**aggregates)
+    )
 
     return [
         BudgetConsumption(
@@ -389,7 +507,12 @@ def consumption_for(budgets: Sequence[Budget], now: Optional[dt.datetime] = None
     ]
 
 
-def enforce_budget(organization: Organization, user: Optional[User], model: Optional[LLMModel], now: Optional[dt.datetime] = None) -> None:
+def enforce_budget(
+    organization: Organization,
+    user: User | None,
+    model: LLMModel | None,
+    now: dt.datetime | None = None,
+) -> None:
     """Raise :class:`BudgetExceeded` if a hard budget governing this call is spent.
 
     Soft budgets only log. Call this *before* the LLM request, outside
@@ -397,14 +520,22 @@ def enforce_budget(organization: Organization, user: Optional[User], model: Opti
     """
     if not isinstance(organization, Organization):
         return
-    for consumption in consumption_for(applicable_budgets(organization, user, model), now):
+    for consumption in consumption_for(
+        applicable_budgets(organization, user, model), now
+    ):
         breach = consumption.breached
         if breach is None:
             continue
         kind, used, limit = breach
         if consumption.budget.hard:
             raise BudgetExceeded(consumption.budget, kind, used, limit)
-        logger.warning("Soft budget %s exceeded: %s of %s %s", consumption.budget.pk, used, limit, kind)
+        logger.warning(
+            "Soft budget %s exceeded: %s of %s %s",
+            consumption.budget.pk,
+            used,
+            limit,
+            kind,
+        )
 
 
 aenforce_budget = sync_to_async(enforce_budget)

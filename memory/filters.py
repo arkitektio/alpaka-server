@@ -1,12 +1,10 @@
-from typing import Optional
-
 import strawberry
 import strawberry_django
 from django.db.models import Q, QuerySet
-from embeddings.search import hybrid_search
 from kante.types import Info
 from strawberry import auto
 
+from embeddings.search import hybrid_search
 from memory import models
 from memory.enums import MemoryKind
 
@@ -30,11 +28,19 @@ class MemoryFilter:
         return Q(**{f"{prefix}name__in": value})
 
     @strawberry_django.filter_field
-    def kind(self, value: Optional[MemoryKind], prefix: str) -> Q:
+    def kind(self, value: MemoryKind | None, prefix: str) -> Q:
         return Q(**{f"{prefix}kind": value.value}) if value is not None else Q()
 
-    @strawberry_django.filter_field(description="Search what a memory says: a case-insensitive substring of its name, description or content, or semantic similarity to all three. Substring matches rank first, then by similarity; an explicit `ordering` replaces that ranking.")
-    def search(self, info: Info, queryset: QuerySet, value: str, prefix: str) -> tuple[QuerySet, Q]:
+    @strawberry_django.filter_field(
+        description="Search what a memory says: a case-insensitive substring of its name, description or content, or semantic similarity to all three. Substring matches rank first, then by similarity; an explicit `ordering` replaces that ranking."
+    )
+    def search(
+        self, info: Info, queryset: QuerySet, value: str, prefix: str
+    ) -> tuple[QuerySet, Q]:
         """Annotate the distance and OR the semantic predicate onto the substring one."""
-        lexical = Q(**{f"{prefix}name__icontains": value}) | Q(**{f"{prefix}description__icontains": value}) | Q(**{f"{prefix}content__icontains": value})
+        lexical = (
+            Q(**{f"{prefix}name__icontains": value})
+            | Q(**{f"{prefix}description__icontains": value})
+            | Q(**{f"{prefix}content__icontains": value})
+        )
         return hybrid_search(queryset, prefix, value, lexical)

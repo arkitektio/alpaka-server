@@ -19,13 +19,30 @@ from llm.models import Provider
 
 
 class Command(BaseCommand):
-    help = "Create an Ollama provider for an organization and inspect its installed models"
+    help = (
+        "Create an Ollama provider for an organization and inspect its installed models"
+    )
 
     def add_arguments(self, parser):
-        parser.add_argument("--organization", required=True, help="The identifier (`<iss>#<org>`) of the Organization that owns the provider")
-        parser.add_argument("--url", type=str, default=settings.OLLAMA_URL, help="Ollama API URL (default: from settings.OLLAMA_URL)")
-        parser.add_argument("--name", type=str, default="ollama", help="Provider name (default: ollama)")
-        parser.add_argument("--force", action="store_true", help="Delete and recreate the provider if it already exists")
+        parser.add_argument(
+            "--organization",
+            required=True,
+            help="The identifier (`<iss>#<org>`) of the Organization that owns the provider",
+        )
+        parser.add_argument(
+            "--url",
+            type=str,
+            default=settings.OLLAMA_URL,
+            help="Ollama API URL (default: from settings.OLLAMA_URL)",
+        )
+        parser.add_argument(
+            "--name", type=str, default="ollama", help="Provider name (default: ollama)"
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Delete and recreate the provider if it already exists",
+        )
 
     def handle(self, *args, **options):
         identifier = options["organization"]
@@ -36,14 +53,20 @@ class Command(BaseCommand):
             organization = Organization.objects.get(identifier=identifier)
         except Organization.DoesNotExist:
             known = list(Organization.objects.values_list("identifier", flat=True))
-            raise CommandError(f"No organization with identifier {identifier!r}. Known organizations: {known}")
+            raise CommandError(
+                f"No organization with identifier {identifier!r}. Known organizations: {known}"
+            )
 
-        self.stdout.write(f"Inspecting Ollama at {ollama_url} for organization {organization.identifier!r}")
+        self.stdout.write(
+            f"Inspecting Ollama at {ollama_url} for organization {organization.identifier!r}"
+        )
 
         if options["force"]:
             # A management command runs outside any request, so it has no
             # request organization to scope to; the filter is explicit instead.
-            deleted, _ = Provider.all_objects.filter(organization=organization, name=provider_name).delete()
+            deleted, _ = Provider.all_objects.filter(
+                organization=organization, name=provider_name
+            ).delete()
             if deleted:
                 self.stdout.write(f"Deleted existing provider: {provider_name}")
 
@@ -57,7 +80,11 @@ class Command(BaseCommand):
                 "kind": ProviderKind.OLLAMA.value,
             },
         )
-        self.stdout.write(self.style.SUCCESS(f"{'Created' if created else 'Using existing'} provider: {provider.name}"))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"{'Created' if created else 'Using existing'} provider: {provider.name}"
+            )
+        )
 
         try:
             # No event loop is running inside a management command, and the
@@ -66,7 +93,11 @@ class Command(BaseCommand):
         except Exception as exc:
             raise CommandError(f"Failed to refresh models from {ollama_url}: {exc}")
 
-        self.stdout.write(self.style.SUCCESS(f"Refreshed {len(models)} models for provider {provider.name}"))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Refreshed {len(models)} models for provider {provider.name}"
+            )
+        )
         self.stdout.write("-" * 80)
         for model in models:
             features = ", ".join(model.get_features()) or "No features"

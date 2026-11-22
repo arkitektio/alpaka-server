@@ -7,26 +7,72 @@ the same commit, and no installer has to learn of it.
 
 from __future__ import annotations
 
-from arkitekt_service.contract import JSON, Contract, Description, Descriptor, Facts, Hosts, Job, Needs, Offers, Role, Scope, Signal, Start, Structure, blocks
+from arkitekt_service.contract import (
+    JSON,
+    Contract,
+    Description,
+    Descriptor,
+    Facts,
+    Hosts,
+    Job,
+    Needs,
+    Offers,
+    Role,
+    Scope,
+    Signal,
+    Start,
+    Structure,
+    blocks,
+)
 
 from alpaka_server.configuration import Settings
 
 #: What an app may do here on a user's behalf: defined at the coordination server when the hub
 #: enrols. Every root field of the schema asks for one of them (`AuthExtension(scopes=...)`).
 SCOPES = [
-    Scope(key="alpaka_read", description="See your chat rooms, messages, vector collections, memories and the models your organization can use."),
-    Scope(key="alpaka_write", description="Create and delete chat rooms and vector collections, add documents to collections, and manage memories and your default models."),
-    Scope(key="alpaka_chat", description="Send messages and run models on your behalf (chat, image generation, decisions); this spends your organization's LLM budget."),
-    Scope(key="alpaka_providers", description="Configure LLM providers, pull models onto them, and set the organization's spending budgets."),
-    Scope(key="alpaka_share", description="Share rooms and messages with people outside your organization through collaborations."),
-    Scope(key="alpaka_all", description="Do everything in Alpaka on your behalf.", is_all_scope=True),
+    Scope(
+        key="alpaka_read",
+        description="See your chat rooms, messages, vector collections, memories and the models your organization can use.",
+    ),
+    Scope(
+        key="alpaka_write",
+        description="Create and delete chat rooms and vector collections, add documents to collections, and manage memories and your default models.",
+    ),
+    Scope(
+        key="alpaka_chat",
+        description="Send messages and run models on your behalf (chat, image generation, decisions); this spends your organization's LLM budget.",
+    ),
+    Scope(
+        key="alpaka_providers",
+        description="Configure LLM providers, pull models onto them, and set the organization's spending budgets.",
+    ),
+    Scope(
+        key="alpaka_share",
+        description="Share rooms and messages with people outside your organization through collaborations.",
+    ),
+    Scope(
+        key="alpaka_all",
+        description="Do everything in Alpaka on your behalf.",
+        is_all_scope=True,
+    ),
 ]
 
 #: What a member of an organization may do here.
 ROLES = [
-    Role(key="alpaka_admin", description="Full control of Alpaka in this organization.", is_admin_role=True),
-    Role(key="alpaka_editor", description="Create rooms and collections, chat with models, and share through collaborations.", is_default_role=True),
-    Role(key="alpaka_manager", description="Configure providers, models and budgets without being an Alpaka admin."),
+    Role(
+        key="alpaka_admin",
+        description="Full control of Alpaka in this organization.",
+        is_admin_role=True,
+    ),
+    Role(
+        key="alpaka_editor",
+        description="Create rooms and collections, chat with models, and share through collaborations.",
+        is_default_role=True,
+    ),
+    Role(
+        key="alpaka_manager",
+        description="Configure providers, models and budgets without being an Alpaka admin.",
+    ),
 ]
 
 #: The role every write asks for, the one that configures providers and budgets, and the one
@@ -38,25 +84,65 @@ ADMIN = "alpaka_admin"
 #: The kind of provider that runs a model (``ollama``, ``openai``, ...): what a privacy-sensitive
 #: action selects on, requiring a provider that runs on the hub (``ollama``, ``ollaya``). One key for
 #: providers and their models, so one `requires` asks both.
-_PROVIDER_KIND = Descriptor(key="@alpaka/provider_kind", type="STRING", description="The kind of provider that runs the model (ollama, ollaya, openai, anthropic, ...): ollama and ollaya run locally on the hub")
+_PROVIDER_KIND = Descriptor(
+    key="@alpaka/provider_kind",
+    type="STRING",
+    description="The kind of provider that runs the model (ollama, ollaya, openai, anthropic, ...): ollama and ollaya run locally on the hub",
+)
 
 ROOM_DESCRIPTORS = [
-    Descriptor(key="@alpaka/contextual_structures", type="LIST", description="The structures the conversation is about (e.g. @mikro/image), sorted, each once"),
-    Descriptor(key="@alpaka/n_agents", type="INT", description="How many agents (participants) take part in the conversation"),
+    Descriptor(
+        key="@alpaka/contextual_structures",
+        type="LIST",
+        description="The structures the conversation is about (e.g. @mikro/image), sorted, each once",
+    ),
+    Descriptor(
+        key="@alpaka/n_agents",
+        type="INT",
+        description="How many agents (participants) take part in the conversation",
+    ),
 ]
 MESSAGE_DESCRIPTORS = [
-    Descriptor(key="@alpaka/from_agent", type="BOOL", description="Whether an agent posted the message"),
-    Descriptor(key="@alpaka/is_reply", type="BOOL", description="Whether it replies to another message"),
-    Descriptor(key="@alpaka/attached_structures", type="LIST", description="The structures the message was posted about (e.g. @mikro/image), sorted, each once"),
+    Descriptor(
+        key="@alpaka/from_agent",
+        type="BOOL",
+        description="Whether an agent posted the message",
+    ),
+    Descriptor(
+        key="@alpaka/is_reply",
+        type="BOOL",
+        description="Whether it replies to another message",
+    ),
+    Descriptor(
+        key="@alpaka/attached_structures",
+        type="LIST",
+        description="The structures the message was posted about (e.g. @mikro/image), sorted, each once",
+    ),
 ]
 LLM_MODEL_DESCRIPTORS = [
-    Descriptor(key="@alpaka/features", type="LIST", description="What the model can do: chat, embedding, vision or decision"),
-    Descriptor(key="@alpaka/input_modalities", type="LIST", description="The kinds of content it accepts as input (text, image, audio, video)"),
-    Descriptor(key="@alpaka/output_modalities", type="LIST", description="The kinds of content it produces as output (text, image, audio, video)"),
+    Descriptor(
+        key="@alpaka/features",
+        type="LIST",
+        description="What the model can do: chat, embedding, vision or decision",
+    ),
+    Descriptor(
+        key="@alpaka/input_modalities",
+        type="LIST",
+        description="The kinds of content it accepts as input (text, image, audio, video)",
+    ),
+    Descriptor(
+        key="@alpaka/output_modalities",
+        type="LIST",
+        description="The kinds of content it produces as output (text, image, audio, video)",
+    ),
     _PROVIDER_KIND,
 ]
 CHROMA_COLLECTION_DESCRIPTORS = [
-    Descriptor(key="@alpaka/embedder", type="STRING", description="The embedding model its documents are embedded by (its model id): a search query is embedded by the same"),
+    Descriptor(
+        key="@alpaka/embedder",
+        type="STRING",
+        description="The embedding model its documents are embedded by (its model id): a search query is embedded by the same",
+    ),
 ]
 #: Only its kind: a provider row holds an API key, and nothing secret is described.
 PROVIDER_DESCRIPTORS = [_PROVIDER_KIND]
@@ -154,8 +240,19 @@ contract = Contract(
         name="alpaka",
         identifier="live.arkitekt.alpaka",
         summary="Language models for the hub.",
-        needs=Needs(scopes=SCOPES, roles=ROLES, storage=["media"], instance_key=True, peers=["rekuest", "ollama"]),
-        offers=Offers(endpoints={"rekuest_service": "_rekuest/service", "rekuest_hook": "_rekuest/hook"}),
+        needs=Needs(
+            scopes=SCOPES,
+            roles=ROLES,
+            storage=["media"],
+            instance_key=True,
+            peers=["rekuest", "ollama"],
+        ),
+        offers=Offers(
+            endpoints={
+                "rekuest_service": "_rekuest/service",
+                "rekuest_hook": "_rekuest/hook",
+            }
+        ),
         requires={"rekuest": ">=6"},
         hosts=HOSTS,
     ),
@@ -163,13 +260,34 @@ contract = Contract(
     render=render,
     # How this service is started: there is no script beside it. `arkitekt-service serve`
     # (and `debug`) become these, so they get the container's signals themselves.
-    serve=Start(("daphne", "-b", "0.0.0.0", "-p", "80", "--websocket_timeout", "-1", "alpaka_server.asgi:application")),
+    serve=Start(
+        (
+            "daphne",
+            "-b",
+            "0.0.0.0",
+            "-p",
+            "80",
+            "--websocket_timeout",
+            "-1",
+            "alpaka_server.asgi:application",
+        )
+    ),
     debug=Start(("python", "manage.py", "runserver", "0.0.0.0:80")),
     jobs={
-        "ensureadmin": Job(("ensureadmin",), "Create the operator account the config names"),
-        "ensurepartners": Job(("ensurepartners",), "Register the partners the config names"),
-        "inspectollama": Job(("inspectollama",), "Register an Ollama server as a provider for an organization and list its models: --organization <identifier>"),
-        "restore_descriptors": Job(("restore_descriptors",), "Store the descriptors of every room, message, model, collection and provider that misses one (--all: of every row)"),
+        "ensureadmin": Job(
+            ("ensureadmin",), "Create the operator account the config names"
+        ),
+        "ensurepartners": Job(
+            ("ensurepartners",), "Register the partners the config names"
+        ),
+        "inspectollama": Job(
+            ("inspectollama",),
+            "Register an Ollama server as a provider for an organization and list its models: --organization <identifier>",
+        ),
+        "restore_descriptors": Job(
+            ("restore_descriptors",),
+            "Store the descriptors of every room, message, model, collection and provider that misses one (--all: of every row)",
+        ),
     },
     setup=("ensureadmin", "ensurepartners", "restore_descriptors"),
 )

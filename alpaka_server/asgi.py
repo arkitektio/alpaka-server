@@ -24,11 +24,12 @@ from django.core.asgi import get_asgi_application  # noqa: E402
 django_asgi_app = get_asgi_application()
 
 
-from .schema import schema  # noqa: E402
-from kammer.consumers import MessageStreamConsumer  # noqa: E402
 from kante.path import re_dynamicpath  # noqa: E402
 from kante.router import router  # noqa: E402
 
+from kammer.consumers import MessageStreamConsumer  # noqa: E402
+
+from .schema import schema  # noqa: E402
 
 _routed_application = router(
     schema=schema,

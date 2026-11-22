@@ -2,7 +2,6 @@ from typing import Any, NewType
 
 import strawberry
 
-
 Base64EncodedString = NewType("Base64EncodedString", str)
 
 
