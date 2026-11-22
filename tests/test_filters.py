@@ -231,3 +231,50 @@ async def test_room_filter_talking_about(aexecute):
     )
     assert miss.data is not None, miss.errors
     assert miss.data["rooms"] == []
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_room_reads_back_what_it_talks_about(aexecute):
+    """``Room.talkingAbout`` reads the structures ``createRoom``/``talkingAbout`` write and filter on."""
+    await seed()
+
+    result = await aexecute("query { rooms(ordering: [{ title: ASC }]) { title talkingAbout { identifier object } } }")
+
+    assert result.data, result.errors
+    assert result.data["rooms"] == [
+        {"title": "Cooking room", "talkingAbout": []},
+        {"title": "Weather room", "talkingAbout": [{"identifier": "some/structure", "object": 42}]},
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_rooms_order_by_their_latest_message(aexecute):
+    """``lastMessageAt`` sorts by the newest message, falling back to creation; ``lastActivity`` is the same time.
+
+    The room with messages was created first, but its last message is newer than
+    the empty room's creation, so it lists first; the empty room's activity is
+    its creation.
+    """
+    data = await seed()
+
+    @sync_to_async
+    def age_the_rooms():
+        models.Room.objects.for_write().filter(id=data["room"].id).update(created_at=timezone.now() - datetime.timedelta(days=10))
+        models.Room.objects.for_write().filter(id=data["other_room"].id).update(created_at=timezone.now() - datetime.timedelta(days=1))
+        newest = models.Message.objects.for_write().filter(room=data["room"]).order_by("-created_at").first()
+        empty = models.Room.objects.for_write().get(id=data["other_room"].id)
+        return newest.created_at, empty.created_at
+
+    newest_message, empty_created = await age_the_rooms()
+
+    result = await aexecute("query { rooms(ordering: [{ lastMessageAt: DESC }]) { title lastActivity } }")
+
+    assert result.data, result.errors
+    assert [row["title"] for row in result.data["rooms"]] == ["Weather room", "Cooking room"]
+    activity = {row["title"]: datetime.datetime.fromisoformat(row["lastActivity"]) for row in result.data["rooms"]}
+    assert activity == {"Weather room": newest_message, "Cooking room": empty_created}
+
+    oldest_first = await aexecute("query { rooms(ordering: [{ lastMessageAt: ASC }]) { title } }")
+    assert [row["title"] for row in oldest_first.data["rooms"]] == ["Cooking room", "Weather room"]

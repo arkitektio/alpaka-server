@@ -4,6 +4,8 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.db.models import F, Max
+from django.db.models.functions import Coalesce
 from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
 from authentikate.models import Client, User, Organization
 from koherent.fields import ProvenanceField
@@ -17,6 +19,11 @@ class Structure(models.Model):
         help_text="The identifier of the object. Consult the documentation for the format",
     )
     object = models.PositiveIntegerField(help_text="The object id of the object, on its associated service")
+
+
+def room_last_activity(prefix: str = "") -> Coalesce:
+    """When a room last saw a message, else when it was created: the one expression its order and its field share."""
+    return Coalesce(Max(f"{prefix}message__created_at"), F(f"{prefix}created_at"))
 
 
 class Room(EmbeddedDescriptionMixin, Described):

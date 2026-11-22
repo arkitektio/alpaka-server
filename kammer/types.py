@@ -72,6 +72,21 @@ class Room:
     organization: Organization
     creator: Optional[User]
     created_at: datetime.datetime
+    talking_about: List[Annotated["Structure", strawberry.lazy("vector.types")]] = strawberry_django.field(
+        field_name="contextual_structures",
+        description="The objects this room is about: the structures it was opened with (`CreateRoomInput.talkingAbout`), the ones `RoomFilter.talkingAbout` matches",
+    )
+
+    @strawberry_django.field(
+        annotate={"_last_activity": models.room_last_activity()},
+        description="When the room last saw a message, or when it was created if it has none. `RoomOrder.lastMessageAt` sorts by the same time",
+    )
+    def last_activity(self) -> datetime.datetime:
+        """The annotated time, or one query for it when the optimizer did not annotate this row."""
+        annotated = getattr(self, "_last_activity", None)
+        if annotated is not None:
+            return annotated
+        return models.Room.all_objects.filter(pk=self.pk).annotate(_last_activity=models.room_last_activity()).values_list("_last_activity", flat=True).get()
 
 
 RoomStats, RoomStatsResolver = create_stats_type(

@@ -52,6 +52,11 @@ class RoomOrder:
     created_at: auto
     title: auto
 
+    @strawberry_django.order_field(description="By the newest message, or the room's creation when it has none: DESC lists the rooms with recent activity first")
+    def last_message_at(self, queryset: QuerySet, info: Info, value: strawberry_django.Ordering, prefix: str) -> tuple[QuerySet, list]:
+        """Annotate the room's latest activity and order by it."""
+        return queryset.annotate(_last_message_at=models.room_last_activity(prefix)), [value.resolve("_last_message_at")]
+
 
 @strawberry_django.filter_type(models.Room)
 class RoomFilter:
