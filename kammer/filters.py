@@ -1,5 +1,6 @@
 import strawberry
 import strawberry_django
+from arkitekt_service.collaborations.filters import SharingFilterMixin
 from django.db.models import Q, QuerySet
 from kante.types import Info
 from strawberry import auto
@@ -17,7 +18,7 @@ class MessageOrder:
 
 
 @strawberry_django.filter_type(models.Message)
-class MessageFilter:
+class MessageFilter(SharingFilterMixin):
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}id__in": value})
@@ -70,7 +71,7 @@ class RoomOrder:
 
 
 @strawberry_django.filter_type(models.Room)
-class RoomFilter:
+class RoomFilter(SharingFilterMixin):
     @strawberry_django.filter_field
     def ids(self, value: list[strawberry.ID], prefix: str) -> Q:
         return Q(**{f"{prefix}id__in": value})

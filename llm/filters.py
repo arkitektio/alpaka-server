@@ -2,6 +2,7 @@ import datetime
 
 import strawberry
 import strawberry_django
+from arkitekt_service.collaborations.filters import SharingFilterMixin
 from django.db.models import Q
 from strawberry import auto
 
@@ -17,7 +18,7 @@ class LLMModelOrder:
 
 
 @strawberry_django.filter_type(models.LLMModel, description="Filter for LLMModel")
-class LLMModelFilter:
+class LLMModelFilter(SharingFilterMixin):
     """Filter for LLMModel"""
 
     @strawberry_django.filter_field
@@ -62,7 +63,7 @@ class ProviderOrder:
 
 
 @strawberry_django.filter_type(models.Provider, description="Filter for Provider")
-class ProviderFilter:
+class ProviderFilter(SharingFilterMixin):
     """Filter for Provider"""
 
     @strawberry_django.filter_field

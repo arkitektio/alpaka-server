@@ -9,7 +9,11 @@ from django.db.models.functions import Coalesce
 from koherent.fields import ProvenanceField
 
 from alpaka_server.scoping import OrganizationScopedManager
-from embeddings.models import EmbeddedDescriptionMixin, embedding_indexes
+from embeddings.models import (
+    EMBEDDING_FIELDS,
+    EmbeddedDescriptionMixin,
+    embedding_indexes,
+)
 
 # Create your models here.
 
@@ -52,6 +56,11 @@ class Room(EmbeddedDescriptionMixin, Described):
         auto_now_add=True, help_text="The time this room got created"
     )
     contextual_structures = models.ManyToManyField(Structure)
+
+    # Who changed the room, under which task: what a workflow (a root task) opened is the CREATE
+    # row's (``shareWorkflow``, ``createdUnder``). The embedding is recomputed, never changed by
+    # anyone, and stays out of it (as ``stored_descriptors`` does, by ``Described``).
+    provenance = ProvenanceField(excluded_fields=list(EMBEDDING_FIELDS))
 
     objects: ClassVar[OrganizationScopedManager] = OrganizationScopedManager()
     all_objects = models.Manager()

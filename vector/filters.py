@@ -1,5 +1,6 @@
 import strawberry
 import strawberry_django
+from arkitekt_service.collaborations.filters import SharingFilterMixin
 from django.db.models import Q, QuerySet
 from kante.types import Info
 from strawberry import auto
@@ -19,7 +20,7 @@ class ChromaCollectionOrder:
 @strawberry_django.filter_type(
     models.ChromaCollection, description="Filter for ChromaCollection"
 )
-class ChromaCollectionFilter:
+class ChromaCollectionFilter(SharingFilterMixin):
     """Filter for ChromaCollection"""
 
     @strawberry_django.filter_field

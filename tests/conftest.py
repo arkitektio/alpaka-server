@@ -4,12 +4,13 @@ import os
 import subprocess
 import time
 import urllib.request
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import Any
 
 import psycopg
 import pytest
 import pytest_asyncio
+from authentikate import settings as authentikate_settings
 from authentikate.models import Client, Membership, Organization, User
 from django.contrib.contenttypes.management import create_contenttypes
 from django.db.models.signals import post_migrate
@@ -17,10 +18,17 @@ from dokker import PortNotFoundError, testing
 from dokker.deployment import Deployment
 from kante.context import HttpContext, UniversalRequest, WsContext
 from pytest_django import DjangoDbBlocker
+from pytest_django.fixtures import SettingsWrapper
 from strawberry.http.temporal_response import TemporalResponse
 from strawberry.types import ExecutionResult
 
-from tests.support import AExecute, BackendStack, WsContexts
+from tests.support import (
+    AExecute,
+    BackendStack,
+    GuestFactory,
+    WsContexts,
+    request_context,
+)
 
 
 def _wait_for_port(
@@ -393,3 +401,30 @@ def aexecute(authenticated_context: HttpContext) -> AExecute:
         )
 
     return _run
+
+
+@pytest.fixture
+def guest(
+    db: None, authenticated_context: HttpContext, settings: SettingsWrapper
+) -> Iterator[GuestFactory]:
+    """``guest({key: roles})``: a context presenting a guest of the test organization (sub 20),
+    granted those collaborations by their key, as lok lists them in the token's ``collabs``."""
+
+    def mint(collaborations: Mapping[str, list[str]]) -> HttpContext:
+        settings.AUTHENTIKATE = {
+            **settings.AUTHENTIKATE,
+            "static_tokens": {
+                **settings.AUTHENTIKATE["static_tokens"],
+                "guest": {
+                    "sub": "20",
+                    "roles": [],
+                    "collabs": dict(collaborations),
+                    "scope": "openid alpaka_all",
+                },
+            },
+        }
+        authentikate_settings.cached_settings = None
+        return request_context("guest")
+
+    yield mint
+    authentikate_settings.cached_settings = None

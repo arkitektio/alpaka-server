@@ -26,9 +26,6 @@ AUTHENTIKATE = {
     # Django forces DEBUG=False under the test runner, and authentikate 3.0 refuses
     # static tokens when DEBUG is False. These are deliberate test fixtures.
     "allow_static_tokens_in_production": True,
-    # This service instance, as konstruktor renders it: what a guest's collaborations are
-    # listed under (tests/test_sharing.py).
-    "audience": "1",
     "static_tokens": {
         name: {**ADMIN_WITH_EVERY_SCOPE, **token}
         for name, token in {

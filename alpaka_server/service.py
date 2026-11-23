@@ -19,7 +19,8 @@ from typing import Literal
 
 from arkitekt_service.collaborations import items as collaboration_items
 from arkitekt_service.service import Service, organization_of
-from django.db.models import Model
+from arkitekt_service.service.described import Described
+from django.db.models import Model, Q
 from django.db.models.signals import m2m_changed, post_delete, post_save
 
 from alpaka_server import descriptors
@@ -53,6 +54,22 @@ def _message_needs(message: kammer_models.Message) -> list[Model]:
 
 
 # --- Structures: what alpaka hosts ----------------------------------------------------
+# What a workflow (a root task) created, for ``shareWorkflow`` and the ``createdUnder`` filters,
+# koherent reads off the CREATE row of a room's and a message's history: a room opened, or a
+# message sent or started over GraphQL, under a task's provenance token. A message streamed over
+# the websocket (``kammer.consumers``) carries no task. A message is part of its room (its required,
+# cascading key): it comes along with a room the workflow opened, and one posted into an older room
+# that is not shared is left out.
+#
+# A provider, its models and the collections they embed are never put in a collaboration (only
+# rooms and messages are, ``alpaka_server.schema.SHAREABLE``): sharing a workflow, which puts in
+# what it finds without asking ``SHAREABLE``, must find none of them, whatever they come to record.
+
+
+def _never_shared(root_task_id: str) -> Q:
+    """No object of the structure: a workflow shares none, and ``createdUnder`` lists none."""
+    return Q(pk__in=[])
+
 
 room = service.structure(
     kammer_models.Room,
@@ -67,16 +84,23 @@ message = service.structure(
     depends=_message_needs,
 )
 llmmodel = service.structure(
-    llm_models.LLMModel, "@alpaka/llmmodel", describe=descriptors.llm_model_descriptors
+    llm_models.LLMModel,
+    "@alpaka/llmmodel",
+    describe=descriptors.llm_model_descriptors,
+    created_under=_never_shared,
 )
 chromacollection = service.structure(
     vector_models.ChromaCollection,
     "@alpaka/chromacollection",
     describe=descriptors.collection_descriptors,
+    created_under=_never_shared,
 )
 # Only its kind: a provider row holds an API key, and nothing else about it belongs in a signal.
 provider = service.structure(
-    llm_models.Provider, "@alpaka/provider", describe=descriptors.provider_descriptors
+    llm_models.Provider,
+    "@alpaka/provider",
+    describe=descriptors.provider_descriptors,
+    created_under=_never_shared,
 )
 
 
@@ -103,6 +127,9 @@ def _restore_attached(
     if not action.startswith("post_"):
         return
     if not reverse:
+        assert isinstance(instance, Described), (
+            "the sides described are a room's, a message's"
+        )
         service.restore(instance)
     elif pk_set:  # written from a structure's side: ``model`` is the room or message
         service.restore(model._base_manager.filter(pk__in=pk_set))

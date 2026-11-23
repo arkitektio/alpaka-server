@@ -114,7 +114,7 @@ class Query:
     )
     collaboration: collaboration_types.Collaboration = field(
         resolver=collaboration_api.collaboration,
-        description="Get a single collaboration by ID",
+        description="Get a single collaboration by its key (lok's): what was put in it here",
     )
 
     # Rooms and messages
@@ -203,15 +203,20 @@ class Mutation:
     """The root mutation type."""
 
     # Collaborations
-    create_collaboration = mutation(
-        scope="alpaka_share",
-        resolver=collaboration_api.create_collaboration,
-        description="Create an empty collaboration, to put rooms in and grant a guest",
-    )
     add_to_collaboration = mutation(
         scope="alpaka_share",
         resolver=collaboration_api.add_to_collaboration,
-        description="Put a room or a message in a collaboration, with what it needs to be seen: a room comes with its agents and messages",
+        description="Put a room or a message in a collaboration (lok's, by its key), with what it needs to be seen: a room comes with its agents and messages. The collaboration's row here is made the first time something is put in",
+    )
+    add_many_to_collaboration = mutation(
+        scope="alpaka_share",
+        resolver=collaboration_api.add_many_to_collaboration,
+        description="Put several rooms or messages in a collaboration (by its key) at once, a room before its messages, each with what it needs to be seen: all of them, or none",
+    )
+    share_workflow = mutation(
+        scope="alpaka_share",
+        resolver=collaboration_api.share_workflow,
+        description="Put what a workflow (its root task) created in alpaka in a collaboration, as it is now: the rooms it opened, with their messages. A message posted into a room made before the workflow, and not shared, is left out and reported; providers, models and collections never go in. `dryRun` only says what would be put in",
     )
     remove_from_collaboration = mutation(
         scope="alpaka_share",
@@ -221,7 +226,7 @@ class Mutation:
     delete_collaboration = mutation(
         scope="alpaka_share",
         resolver=collaboration_api.delete_collaboration,
-        description="Delete a collaboration: whoever was granted it sees nothing of it any more",
+        description="Take everything alpaka put in a collaboration (by its key) out of it: whoever was granted it sees nothing of it here any more. lok's collaboration, and its grants, stay",
     )
 
     # Rooms and messages
